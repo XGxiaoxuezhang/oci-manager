@@ -44,7 +44,7 @@
 
 ### 2. 克隆项目与安装依赖
 ```bash
-git clone https://github.com/your-username/oci-manager.git
+git clone https://github.com/your-username/oci-manager.git](https://github.com/XGxiaoxuezhang/oci-manager.git
 cd oci-manager
 pip install -r requirements.txt
 ```
