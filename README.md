@@ -4,6 +4,8 @@
 ![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)
 ![Framework](https://img.shields.io/badge/framework-Flask-lightgrey)
 
+# 注意，抢机，救机之类得功能未测试，谨慎使用，重点是数据库、邮件、对象存储的简单使用，本程序全程由ai开发，自行进行审计。
+
 **OCI Manager** 是一个专为个人和团队运维打造的 **Oracle Cloud Infrastructure (OCI) 多租户 Web 控制台**。
 它采用极其轻量级的后端架构（Python/Flask），不需要繁重的数据库，原生支持纯服务端渲染（SSR）。配合精心设计的**暗黑工业指挥中心**风格 UI，让你抛开操作繁琐的官方控制台，聚合所有的核心 OCI 运维能力。
 
