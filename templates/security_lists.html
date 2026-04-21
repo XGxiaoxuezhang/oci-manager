@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block title %}安全列表 | OCI Manager{% endblock %}
+{% block content %}
+<section class="section-head">
+  <div>
+    <div class="eyebrow">Network Security</div>
+    <h2>安全列表</h2>
+    <div class="section-sub">租户：{{ tenant_name }}</div>
+  </div>
+</section>
+
+<section class="table-card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>名称</th><th>VCN ID</th><th>入站</th><th>出站</th><th>创建时间</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for item in security_lists %}
+        <tr>
+          <td>{{ item.name }}</td>
+          <td>{{ item.vcn_id }}</td>
+          <td>{{ item.ingress_count }}</td>
+          <td>{{ item.egress_count }}</td>
+          <td>{{ item.created }}</td>
+          <td><a class="btn btn-primary" href="/tenant/{{ tenant_name }}/security-list/{{ item.id }}/rules">管理规则</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6"><div class="empty">没有安全列表。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

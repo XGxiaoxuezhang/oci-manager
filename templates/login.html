@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}登录 | OCI Manager{% endblock %}
+{% block body %}
+<div class="login-shell">
+  <div class="login-panel stack">
+    <section class="hero">
+      <div class="eyebrow">OCI Control Surface</div>
+      <h1>欢迎回来</h1>
+      <p>登录后即可进入多租户控制面板。</p>
+    </section>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      <div class="flash-stack">
+        {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% endwith %}
+
+    <section class="panel">
+      <div class="eyebrow" style="margin-bottom:12px">Sign In</div>
+      <h3 style="margin-bottom:20px">管理员登录</h3>
+      <form method="post" autocomplete="on">
+        <div class="field">
+          <label>用户名</label>
+          <input name="username" value="{{ auth_username }}" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label>密码</label>
+          <input name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <button class="btn btn-primary" type="submit" style="width:100%;justify-content:center;padding:12px;">进入控制台</button>
+      </form>
+    </section>
+  </div>
+</div>
+{% endblock %}

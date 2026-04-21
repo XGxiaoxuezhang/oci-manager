@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}用户 | OCI Manager{% endblock %}
+{% block content %}
+<section class="section-head">
+  <div>
+    <div class="eyebrow">Identity</div>
+    <h2>用户管理</h2>
+    <div class="section-sub">租户：{{ tenant_name }}</div>
+  </div>
+</section>
+
+<section class="panel">
+  <h3>创建新用户</h3>
+  <form method="post" action="/tenant/{{ tenant_name }}/user/create" class="grid grid-3">
+    <div class="field"><label>用户名</label><input name="username" required></div>
+    <div class="field"><label>邮箱</label><input name="email" type="email" required></div>
+    <div class="field"><label>附加选项</label><div class="small"><label><input type="checkbox" name="is_admin"> 自动加入管理员组</label><br><label><input type="checkbox" name="create_password"> 生成控制台临时密码</label></div></div>
+    <div><button class="btn btn-primary" type="submit">创建</button></div>
+  </form>
+</section>
+
+<section class="table-card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>用户名</th><th>邮箱</th><th>MFA</th><th>TOTP</th><th>创建时间</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for user in users %}
+        <tr>
+          <td>{{ user.name }}</td>
+          <td>{{ user.email }}</td>
+          <td><span class="badge {{ 'badge-good' if user.mfa else 'badge-bad' }}">{{ '已启用' if user.mfa else '未启用' }}</span></td>
+          <td>{{ user.totp_count }}</td>
+          <td>{{ user.created }}</td>
+          <td>
+            <form class="inline" method="post" action="/tenant/{{ tenant_name }}/user/reset_mfa/{{ user.id }}" onsubmit="return confirm('确定重置该用户的 MFA 吗？');">
+              <button class="btn btn-warning" type="submit">重置 MFA</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6"><div class="empty">当前租户没有用户。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

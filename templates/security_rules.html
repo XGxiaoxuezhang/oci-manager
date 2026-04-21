@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}安全规则 | OCI Manager{% endblock %}
+{% block content %}
+<section class="section-head">
+  <div>
+    <div class="eyebrow">Security Rules</div>
+    <h2>{{ security_list.name }}</h2>
+    <div class="section-sub">租户：{{ tenant_name }}</div>
+  </div>
+  <a class="btn btn-ghost" href="/tenant/{{ tenant_name }}/security-lists">返回</a>
+</section>
+
+<section class="panel">
+  <h3>添加规则</h3>
+  <form method="post" action="/tenant/{{ tenant_name }}/security-list/{{ security_list.id }}/add-rule" class="grid grid-3">
+    <div class="field"><label>方向</label><select name="rule_type"><option value="ingress">入站</option><option value="egress">出站</option></select></div>
+    <div class="field"><label>协议</label><select name="protocol"><option value="tcp">TCP</option><option value="udp">UDP</option><option value="all">ALL</option></select></div>
+    <div class="field"><label>来源/目标 CIDR</label><input name="source_dest" value="0.0.0.0/0" required></div>
+    <div class="field"><label>端口起始</label><input name="port_min" type="number" min="1" max="65535"></div>
+    <div class="field"><label>端口结束</label><input name="port_max" type="number" min="1" max="65535"></div>
+    <div class="field"><label>备注</label><input name="description"></div>
+    <div><button class="btn btn-primary" type="submit">添加规则</button></div>
+  </form>
+</section>
+
+<section class="table-card" style="margin-top:20px;">
+  <h3>入站规则</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>协议</th><th>来源</th><th>端口</th><th>备注</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for rule in ingress_rules %}
+        <tr>
+          <td>{{ rule.protocol }}</td>
+          <td>{{ rule.peer }}</td>
+          <td>{{ rule.ports }}</td>
+          <td>{{ rule.description or '-' }}</td>
+          <td><form class="inline" method="post" action="/tenant/{{ tenant_name }}/security-list/{{ security_list.id }}/delete-rule/ingress/{{ rule.index }}" onsubmit="return confirm('确定删除这条规则吗？');"><button class="btn btn-danger" type="submit">删除</button></form></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5"><div class="empty">没有入站规则。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="table-card" style="margin-top:20px;">
+  <h3>出站规则</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>协议</th><th>目标</th><th>端口</th><th>备注</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for rule in egress_rules %}
+        <tr>
+          <td>{{ rule.protocol }}</td>
+          <td>{{ rule.peer }}</td>
+          <td>{{ rule.ports }}</td>
+          <td>{{ rule.description or '-' }}</td>
+          <td><form class="inline" method="post" action="/tenant/{{ tenant_name }}/security-list/{{ security_list.id }}/delete-rule/egress/{{ rule.index }}" onsubmit="return confirm('确定删除这条规则吗？');"><button class="btn btn-danger" type="submit">删除</button></form></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5"><div class="empty">没有出站规则。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

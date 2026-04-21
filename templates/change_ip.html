@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}更换公网 IP | OCI Manager{% endblock %}
+{% block content %}
+<section class="section-head">
+  <div>
+    <div class="eyebrow">Network</div>
+    <h2>更换公网 IP</h2>
+    <div class="section-sub">实例：{{ instance.name }}</div>
+  </div>
+</section>
+
+<section class="panel" style="max-width:560px;">
+  <p class="section-sub">当前公网 IP：<strong>{{ instance.public_ip }}</strong></p>
+  <p class="section-sub">确认后将释放旧 IP，并为当前实例分配新的保留公网 IP。</p>
+  <div class="actions">
+    <form method="post">
+      <button class="btn btn-primary" type="submit" onclick="return confirm('确定更换公网 IP 吗？旧 IP 将被释放。');">确认更换</button>
+    </form>
+    <a class="btn btn-ghost" href="/tenant/{{ tenant_name }}/instances">取消</a>
+  </div>
+</section>
+{% endblock %}

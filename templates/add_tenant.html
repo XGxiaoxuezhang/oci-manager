@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}添加租户 | OCI Manager{% endblock %}
+{% block hero_title %}添加租户{% endblock %}
+{% block hero_text %}填写 OCI API 凭据，系统会把私钥安全保存到租户目录。{% endblock %}
+
+{% block content %}
+<section class="section-head">
+  <div>
+    <div class="eyebrow">Tenant Onboarding</div>
+    <h2>新增 OCI 租户</h2>
+    <div class="section-sub">私钥文件仅保存在服务器本地，不会传输到任何第三方。</div>
+  </div>
+</section>
+
+<section class="panel" style="max-width:800px;">
+  <form method="post" enctype="multipart/form-data">
+    <div class="grid grid-2">
+      <div class="field">
+        <label>租户名称（别名）</label>
+        <input name="tenant_name" placeholder="例如 my-oci-prod" required>
+      </div>
+      <div class="field">
+        <label>区域</label>
+        <select name="region" required>
+          {% for value, label in regions %}
+          <option value="{{ value }}">{{ label }} &nbsp;·&nbsp; {{ value }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="field">
+      <label>Tenancy OCID</label>
+      <input name="tenant_id" placeholder="ocid1.tenancy.oc1..aaaa..." required>
+    </div>
+    <div class="field">
+      <label>User OCID</label>
+      <input name="user_id" placeholder="ocid1.user.oc1..aaaa..." required>
+    </div>
+    <div class="field">
+      <label>API Key Fingerprint</label>
+      <input name="fingerprint" placeholder="xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx" required>
+    </div>
+    <div class="field">
+      <label>私钥文件（.pem / .key，最大 8 KB）</label>
+      <input name="key_file" type="file" accept=".pem,.key" required>
+    </div>
+    <hr style="margin:20px 0;">
+    <div class="actions">
+      <button class="btn btn-primary" type="submit">保存租户</button>
+      <a class="btn btn-ghost" href="/">取消</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

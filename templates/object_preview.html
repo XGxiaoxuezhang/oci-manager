@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}对象预览 | OCI 管理器{% endblock %}
+{% block content %}
+<section class="section-head">
+  <div>
+    <div class="eyebrow">对象预览</div>
+    <h2>{{ object_name }}</h2>
+    <div class="section-sub">Bucket {{ bucket_name }} / {{ content_type }} / {{ size|format_bytes }}</div>
+  </div>
+  <div class="actions">
+    <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/object-storage?bucket={{ bucket_name }}">返回 Bucket</a>
+    <a class="btn btn-ghost" href="/tenant/{{ tenant_name }}/object-storage/object/download?bucket={{ bucket_name }}&name={{ object_name|urlencode }}">下载文件</a>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="kv-grid">
+    <div class="kv-item"><strong>Bucket</strong>{{ bucket_name }}</div>
+    <div class="kv-item"><strong>内容类型</strong>{{ content_type }}</div>
+    <div class="kv-item"><strong>文件大小</strong>{{ size|format_bytes }}</div>
+    <div class="kv-item"><strong>ETag</strong>{{ etag or '-' }}</div>
+  </div>
+</section>
+
+<section class="panel" style="margin-top:20px;">
+  {% if preview.mode == 'text' %}
+  <div class="section-head"><div><div class="eyebrow">文本</div><h3>内容预览</h3></div></div>
+  <pre>{{ preview.text }}</pre>
+  {% elif preview.mode == 'image' %}
+  <div class="section-head"><div><div class="eyebrow">图片</div><h3>内容预览</h3></div></div>
+  <img src="{{ preview.data_url }}" alt="{{ object_name }}" style="max-width:100%; border-radius:18px; border:1px solid rgba(76,64,47,0.08);">
+  {% else %}
+  <div class="empty">当前文件类型暂不支持在线预览，请直接下载查看。</div>
+  {% endif %}
+  {% if preview.truncated %}
+  <p class="small" style="margin-top:12px;">预览内容已截断，以保证页面响应速度。</p>
+  {% endif %}
+</section>
+{% endblock %}

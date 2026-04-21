@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}实例 | OCI 管理器{% endblock %}
+{% block content %}
+<section class="section-head">
+  <div>
+    <div class="eyebrow">计算实例</div>
+    <h2>实例列表</h2>
+    <div class="section-sub">管理租户 {{ tenant_name }} 的实例生命周期、换 IP、救机和控制台访问。</div>
+  </div>
+  <a class="btn btn-primary" href="/tenant/{{ tenant_name }}/launcher">前往抢机</a>
+</section>
+
+<section class="table-card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>名称</th><th>规格</th><th>状态</th><th>可用域</th><th>公网 IP</th><th>私网 IP</th><th>创建时间</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for instance in instances %}
+        <tr>
+          <td>{{ instance.name }}</td>
+          <td><span class="small">{{ instance.shape }}</span></td>
+          <td><span class="badge {{ 'badge-good' if instance.state == 'RUNNING' else 'badge-bad' if instance.state in ['TERMINATED', 'STOPPING'] else 'badge-mid' }}">{{ instance.state }}</span></td>
+          <td>{{ instance.availability_domain }}</td>
+          <td>{{ instance.public_ip }}</td>
+          <td>{{ instance.private_ip }}</td>
+          <td>{{ instance.created }}</td>
+          <td>
+            <div class="actions">
+              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/start"><button class="btn btn-ghost" type="submit">启动</button></form>
+              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/softstop"><button class="btn btn-ghost" type="submit">软停</button></form>
+              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/reset"><button class="btn btn-ghost" type="submit">重启</button></form>
+              <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/instance/{{ instance.id }}/change_ip">换 IP</a>
+              <a class="btn btn-warning" href="/tenant/{{ tenant_name }}/instance/{{ instance.id }}/rescue">控制台 / VNC</a>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8"><div class="empty">当前租户没有实例。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

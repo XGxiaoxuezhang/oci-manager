@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+
+{% block title %}邮件 | OCI 管理器{% endblock %}
+{% block content %}
+<section class="metrics">
+  <div class="metric"><div class="label">邮件域名</div><div class="value">{{ email_stats.domain_count }}</div></div>
+  <div class="metric"><div class="label">已激活域名</div><div class="value">{{ email_stats.active_domain_count }}</div></div>
+  <div class="metric"><div class="label">发件人</div><div class="value">{{ email_stats.sender_count }}</div></div>
+</section>
+
+<section class="grid grid-2">
+  <article class="panel">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">免费提示</div>
+        <h2>收发邮件说明</h2>
+        <div class="section-sub">这里的“收发邮件”是指在 OCI 里配置发件能力，并把测试邮件发到你自己的收件箱。</div>
+      </div>
+    </div>
+    <div class="stack">
+      {% for guide in email_guides %}
+      <div class="kv-item">{{ guide }}</div>
+      {% endfor %}
+      <div class="kv-item">
+        <strong>官方说明</strong>
+        <div><a href="https://docs.oracle.com/en-us/iaas/Content/Email/Concepts/overview.htm" target="_blank" rel="noreferrer">Email Delivery 文档</a></div>
+        <div><a href="https://www.oracle.com/cloud/price-list/" target="_blank" rel="noreferrer">Oracle Cloud 价格页</a></div>
+      </div>
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">SMTP</div>
+        <h2>第三方客户端发信</h2>
+        <div class="section-sub">在其他系统或代码中使用 SMTP 发信所需的服务器配置。</div>
+      </div>
+    </div>
+    <div class="kv-grid stack">
+      <div class="kv-item">
+        <strong>SMTP 服务器 Host</strong>
+        <span class="code">{{ email_configuration.smtp_submit_endpoint }}</span>
+      </div>
+      <div class="kv-item">
+        <strong>端口</strong>
+        <span><span class="code">587</span> (推荐，STARTTLS) 或 <span class="code">25</span></span>
+      </div>
+      <div class="kv-item" style="grid-column: 1 / -1;">
+        <strong>SMTP 账号与密码</strong>
+        <div style="margin-top: 8px;">
+          {% if new_smtp_credential %}
+          <div style="background: var(--bg-2); border: 1px solid var(--good); padding: 12px; border-radius: 4px; margin-bottom: 12px; line-height: 1.5;">
+            <div style="color: var(--good); font-weight: bold; margin-bottom: 8px;">✅ SMTP 凭据生成成功！请务必妥善保存，（出于安全原因）密码只显示这一次：</div>
+            <div><strong>账号 (Username):</strong> <code class="code" style="user-select: all;">{{ new_smtp_credential.username }}</code></div>
+            <div style="margin-top: 4px;"><strong>密码 (Password):</strong> <code class="code" style="user-select: all;">{{ new_smtp_credential.password }}</code></div>
+          </div>
+          {% endif %}
+          
+          <form method="post" action="/tenant/{{ tenant_name }}/email/smtp-credential" onsubmit="return confirm('确认要马上生成一个新的 SMTP 专属凭据吗？');" style="margin-bottom: 8px;">
+            <button class="btn btn-sm btn-secondary" type="submit">为当前 API 账号一键生成 SMTP 凭据</button>
+          </form>
+          <span style="display:inline-block; line-height:1.4; color: var(--text-2); font-size: 0.85em;">
+            <em>注意：使用以上信息发信前，必须保证对应的发件人邮箱已在下方列表激活。本系统生成的是当前所用 API (Identity) 账号名下的 SMTP 密码。<a href="https://cloud.oracle.com/identity/domains/my-profile" target="_blank" rel="noreferrer">前往 OCI 手动管理</a></em>
+          </span>
+        </div>
+      </div>
+    </div>
+  </article>
+</section>
+
+<section class="grid grid-2" style="margin-top:20px;">
+  <article class="panel">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">域名</div>
+        <h2>添加邮件域名</h2>
+        <div class="section-sub">将你的自有域名添加到此处，作为发信域名。添加后记得配置真实的 DNS 记录以提高送达率。</div>
+      </div>
+    </div>
+    <form method="post" action="/tenant/{{ tenant_name }}/email/domains">
+      <div class="field">
+        <label>发信域名</label>
+        <input name="domain_name" type="text" placeholder="example.com" required>
+      </div>
+      <div class="field">
+        <label>描述（可选）</label>
+        <input name="description" type="text" placeholder="简短的备注信息">
+      </div>
+      <button class="btn btn-primary" type="submit">添加域名</button>
+    </form>
+  </article>
+
+  <article class="panel">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">发件人</div>
+        <h2>添加发件人</h2>
+        <div class="section-sub">需要在现有的邮件域名基础上，把允许发信的具体邮箱地址加进来。</div>
+      </div>
+    </div>
+    <form method="post" action="/tenant/{{ tenant_name }}/email/senders">
+      <div class="field">
+        <label>发件人邮箱</label>
+        <input name="email_address" type="email" placeholder="noreply@example.com" required>
+      </div>
+      <button class="btn btn-primary" type="submit" style="margin-top: 14px;">添加发件人</button>
+    </form>
+  </article>
+</section>
+
+<section class="panel" style="margin-top:20px;">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">发信测试</div>
+      <h2>发送测试邮件</h2>
+      <div class="section-sub">收件人可以直接填你自己的常用邮箱，用来验证域名和发件人是否已生效。</div>
+    </div>
+  </div>
+  <form method="post" action="/tenant/{{ tenant_name }}/email/send-test">
+    <div class="grid grid-2">
+      <div class="field">
+        <label>发件人邮箱</label>
+        <input name="sender_email" type="email" placeholder="noreply@example.com" required>
+      </div>
+      <div class="field">
+        <label>收件人邮箱</label>
+        <input name="to_email" type="email" placeholder="you@example.com" required>
+      </div>
+    </div>
+    <div class="grid grid-2">
+      <div class="field">
+        <label>主题</label>
+        <input name="subject" value="OCI 邮件测试">
+      </div>
+      <div class="field">
+        <label>回复邮箱</label>
+        <input name="reply_to" type="email" placeholder="support@example.com">
+      </div>
+    </div>
+    <div class="field">
+      <label>正文</label>
+      <textarea name="body_text">这是一封来自 OCI Manager 的测试邮件。</textarea>
+    </div>
+    <button class="btn btn-primary" type="submit">发送测试邮件</button>
+  </form>
+</section>
+
+<section class="table-card" style="margin-top:20px;">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">域名</div>
+      <h2>邮件域名列表</h2>
+      <div class="section-sub">这里只展示当前租户已经存在的邮件域名，你可以自己在 OCI 控制台里继续加域名。</div>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>域名</th><th>状态</th><th style="min-width: 320px;">DNS 记录 (DKIM & SPF)</th><th>描述</th><th>创建时间</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for domain in email_domains %}
+        <tr>
+          <td>{{ domain.name }}</td>
+          <td><span class="badge {{ 'badge-good' if domain.state == 'ACTIVE' else 'badge-mid' }}">{{ domain.state }}</span></td>
+          <td>
+            <div class="stack" style="gap: 8px;">
+              <div style="background: var(--bg-2); padding: 8px; border-radius: 4px; border: 1px solid var(--border);">
+                <div style="font-size: 0.85em; margin-bottom: 4px;">
+                  <strong>SPF 记录</strong>
+                </div>
+                <div style="font-size: 0.85em; color: var(--text-2);">
+                  去你的域名 DNS 添加一条 <strong>TXT</strong> 记录：<br>
+                  主机记录 (Name): <code class="code">@</code><br>
+                  记录值 (Value): <code class="code">v=spf1 include:spf.email.{{ region }}.oci.oraclecloud.com ~all</code>
+                </div>
+              </div>
+
+              {% for dkim in domain.dkims %}
+              <div style="background: var(--bg-2); padding: 8px; border-radius: 4px; border: 1px solid var(--border);">
+                <div style="font-size: 0.85em; margin-bottom: 4px;">
+                  <strong>DKIM ({{ dkim.name }})</strong> <span class="badge {{ 'badge-good' if dkim.state == 'ACTIVE' else 'badge-mid' }}" style="font-size: 0.8em; padding: 0 4px;">{{ dkim.state }}</span>
+                </div>
+                {% if dkim.state != 'ACTIVE' and dkim.dns_subdomain_name %}
+                <div style="font-size: 0.85em; color: var(--warn); margin-bottom: 8px; line-height: 1.4;">
+                  ⚠️ 未生效：请前往你的域名 DNS 服务商，添加以下记录。添加后需等待 OCI 自动检测（一般几分钟到半小时不等）。<br>
+                  <em>必须等到这里的状态变为 <strong>ACTIVE</strong>，才能成功发送邮件，否则会报错 <code>doesn't have DKIM configured</code>。</em>
+                </div>
+                {% endif %}
+                {% if dkim.dns_subdomain_name and dkim.cname_record_value %}
+                <div style="font-size: 0.85em; color: var(--text-2); line-height: 1.6;">
+                  记录类型：<strong>CNAME</strong><br>
+                  主机记录 (Name): <code class="code">{{ dkim.dns_subdomain_name }}</code><br>
+                  记录值 (Value): <code class="code">{{ dkim.cname_record_value }}</code>
+                </div>
+                {% else %}
+                <div style="font-size: 0.85em; color: var(--text-2);">记录生成中，刷新页面查看，此过程一般不超过 1 分钟。</div>
+                {% endif %}
+              </div>
+              {% else %}
+              <div style="font-size: 0.85em; color: var(--text-3);">无 DKIM</div>
+              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/email/domains/{{ domain.id }}/dkim">
+                <input type="hidden" name="selector_name" value="oci">
+                <button class="btn btn-sm btn-secondary" type="submit">生成 DKIM</button>
+              </form>
+              {% endfor %}
+            </div>
+          </td>
+          <td>{{ domain.description or '-' }}</td>
+          <td>{{ domain.created }}</td>
+          <td style="vertical-align: top;">
+            <form class="inline" method="post" action="/tenant/{{ tenant_name }}/email/domains/{{ domain.id }}/delete" onsubmit="return confirm('确认删除域名 {{ domain.name }} 吗？此操作不可逆。');">
+              <button class="btn btn-danger btn-sm" type="submit">删除</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6"><div class="empty">当前还没有邮件域名。你可以上方表单中直接添加。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="table-card" style="margin-top:20px;">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">发件人</div>
+      <h2>Approved Sender 列表</h2>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>邮箱</th><th>状态</th><th>IP Pool</th><th>创建时间</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for sender in senders %}
+        <tr>
+          <td>{{ sender.email_address }}</td>
+          <td><span class="badge {{ 'badge-good' if sender.state == 'ACTIVE' else 'badge-mid' }}">{{ sender.state }}</span></td>
+          <td><span class="code">{{ sender.email_ip_pool_id }}</span></td>
+          <td>{{ sender.created }}</td>
+          <td>
+            <form class="inline" method="post" action="/tenant/{{ tenant_name }}/email/senders/{{ sender.id }}/delete" onsubmit="return confirm('确认删除发件人 {{ sender.email_address }} 吗？');">
+              <button class="btn btn-danger" type="submit">删除</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5"><div class="empty">当前还没有发件人。你可以先添加一个邮箱地址，用来发送测试邮件。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

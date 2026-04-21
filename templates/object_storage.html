@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block title %}对象存储 | OCI 管理器{% endblock %}
+{% block content %}
+<section class="metrics">
+  <div class="metric"><div class="label">Bucket 数量</div><div class="value">{{ storage_stats.bucket_count }}</div></div>
+  <div class="metric"><div class="label">对象数量</div><div class="value">{{ storage_stats.object_count }}</div></div>
+  <div class="metric"><div class="label">已用容量</div><div class="value" style="font-size:1.2rem">{{ storage_stats.total_size|format_bytes }}</div></div>
+</section>
+
+<section class="section-head">
+  <div>
+    <div class="eyebrow">对象存储</div>
+    <h2>命名空间 {{ namespace_name }}</h2>
+    <div class="section-sub">上传、查看、预览、下载对象，并查看本地挂载说明。</div>
+  </div>
+</section>
+
+<section class="grid grid-2">
+  <article class="panel">
+    <h3>创建 Bucket</h3>
+    <form method="post" action="/tenant/{{ tenant_name }}/object-storage/bucket">
+      <div class="field"><label>Bucket 名称</label><input name="bucket_name" required></div>
+      <div class="field"><label>存储层级</label><select name="storage_tier"><option value="Standard">Standard</option><option value="Archive">Archive</option></select></div>
+      <button class="btn btn-primary" type="submit">创建 Bucket</button>
+    </form>
+  </article>
+
+  <article class="panel">
+    <h3>上传对象</h3>
+    <form method="post" action="/tenant/{{ tenant_name }}/object-storage/object" enctype="multipart/form-data">
+      <div class="field"><label>目标 Bucket</label><select name="bucket_name">{% for bucket in buckets %}<option value="{{ bucket.name }}" {% if bucket.name == selected_bucket %}selected{% endif %}>{{ bucket.name }}</option>{% endfor %}</select></div>
+      <div class="field"><label>文件</label><input type="file" name="object_file" required></div>
+      <div class="field"><label>对象名称</label><input name="object_name" placeholder="留空则使用原始文件名"></div>
+      <button class="btn btn-primary" type="submit">上传对象</button>
+    </form>
+  </article>
+</section>
+
+<section class="grid grid-2" style="margin-top:20px;">
+  <article class="table-card">
+    <div class="section-head"><div><div class="eyebrow">Bucket</div><h2>Bucket 列表</h2></div></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>名称</th><th>层级</th><th>对象数</th><th>容量</th><th>操作</th></tr></thead>
+        <tbody>
+          {% for bucket in buckets %}
+          <tr>
+            <td>{{ bucket.name }}</td>
+            <td>{{ bucket.storage_tier }}</td>
+            <td>{{ bucket.count }}</td>
+            <td>{{ bucket.size|format_bytes }}</td>
+            <td><a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/object-storage?bucket={{ bucket.name }}">查看</a></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5"><div class="empty">当前没有 Bucket。</div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+  <article class="info-card">
+    <div class="section-head"><div><div class="eyebrow">挂载</div><h2>本地挂载说明</h2></div></div>
+    <p class="section-sub">对象存储更适合使用 <code>rclone mount</code> 这类用户态工具挂载，而不是当作块存储直接挂盘。</p>
+    <div class="kv-grid">
+      <div class="kv-item"><strong>区域</strong>{{ mount_helper.region }}</div>
+      <div class="kv-item"><strong>命名空间</strong>{{ mount_helper.namespace }}</div>
+      <div class="kv-item" style="grid-column: 1 / -1;"><strong>S3 Endpoint</strong>{{ mount_helper.s3_endpoint }}</div>
+    </div>
+    <pre>rclone config create {{ mount_helper.rclone_remote }} s3 \
+  provider Other \
+  env_auth false \
+  access_key_id &lt;OCI access key&gt; \
+  secret_access_key &lt;OCI secret key&gt; \
+  endpoint {{ mount_helper.s3_endpoint }}
+
+rclone mount {{ mount_helper.rclone_remote }}:{{ mount_helper.bucket }} X:\object-storage</pre>
+  </article>
+</section>
+
+{% if selected_bucket %}
+<section class="grid grid-2" style="margin-top:20px;">
+  <article class="info-card">
+    <div class="section-head"><div><div class="eyebrow">详情</div><h2>{{ selected_bucket_detail.name }}</h2></div></div>
+    <div class="kv-grid">
+      <div class="kv-item"><strong>存储层级</strong>{{ selected_bucket_detail.storage_tier }}</div>
+      <div class="kv-item"><strong>公共访问</strong>{{ selected_bucket_detail.public_access_type }}</div>
+      <div class="kv-item"><strong>版本控制</strong>{{ selected_bucket_detail.versioning }}</div>
+      <div class="kv-item"><strong>自动分层</strong>{{ selected_bucket_detail.auto_tiering }}</div>
+      <div class="kv-item"><strong>对象数量</strong>{{ selected_bucket_detail.count }}</div>
+      <div class="kv-item"><strong>容量</strong>{{ selected_bucket_detail.size|format_bytes }}</div>
+    </div>
+  </article>
+
+  <article class="panel">
+    <h3>对象筛选</h3>
+    <form method="get" action="/tenant/{{ tenant_name }}/object-storage">
+      <input type="hidden" name="bucket" value="{{ selected_bucket }}">
+      <div class="field"><label>前缀过滤</label><input name="prefix" value="{{ object_prefix }}" placeholder="例如 backup/ 或 logs/"></div>
+      <button class="btn btn-primary" type="submit">应用筛选</button>
+    </form>
+    <div class="kv-grid" style="margin-top:16px;">
+      <div class="kv-item"><strong>筛选后对象数</strong>{{ selected_stats.object_count }}</div>
+      <div class="kv-item"><strong>筛选后容量</strong>{{ selected_stats.total_size|format_bytes }}</div>
+    </div>
+  </article>
+</section>
+
+<section class="table-card" style="margin-top:20px;">
+  <div class="section-head"><div><div class="eyebrow">对象</div><h2>{{ selected_bucket }}</h2></div></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>名称</th><th>大小</th><th>存储层</th><th>更新时间</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for obj in objects %}
+        <tr>
+          <td>{{ obj.name }}</td>
+          <td>{{ obj.size|format_bytes }}</td>
+          <td>{{ obj.storage_tier }}</td>
+          <td>{{ obj.created }}</td>
+          <td>
+            <div class="actions">
+              <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/object-storage/object/preview?bucket={{ selected_bucket }}&name={{ obj.name|urlencode }}">预览</a>
+              <a class="btn btn-ghost" href="/tenant/{{ tenant_name }}/object-storage/object/download?bucket={{ selected_bucket }}&name={{ obj.name|urlencode }}">下载</a>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5"><div class="empty">当前筛选条件下没有对象。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

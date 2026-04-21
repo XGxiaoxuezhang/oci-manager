@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}OCI 管理器{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+  {% block body %}
+  <div class="shell">
+
+    <section class="hero">
+      <div class="eyebrow">OCI Control Surface</div>
+      <h1>{% block hero_title %}OCI 管理器{% endblock %}</h1>
+      <p>{% block hero_text %}多租户 Oracle Cloud 运维控制台 · 实例管理 · 抢机 · 对象存储 · 自治数据库 · 邮件发信{% endblock %}</p>
+    </section>
+
+    <div class="topbar">
+      <nav class="navbar">
+        <a class="nav-pill {{ 'active' if page == 'tenants' else '' }}" href="/">首页</a>
+        <a class="nav-pill {{ 'active' if page == 'add_tenant' else '' }}" href="/tenant/add">添加租户</a>
+        {% if tenant_name %}
+        <a class="nav-pill {{ 'active' if page == 'users' else '' }}" href="/tenant/{{ tenant_name }}/users">用户</a>
+        <a class="nav-pill {{ 'active' if page in ['instances', 'change_ip', 'rescue'] else '' }}" href="/tenant/{{ tenant_name }}/instances">实例</a>
+        <a class="nav-pill {{ 'active' if page == 'launcher' else '' }}" href="/tenant/{{ tenant_name }}/launcher">抢机</a>
+        <a class="nav-pill {{ 'active' if page in ['object_storage', 'object_preview'] else '' }}" href="/tenant/{{ tenant_name }}/object-storage">对象存储</a>
+        <a class="nav-pill {{ 'active' if page == 'databases' else '' }}" href="/tenant/{{ tenant_name }}/databases">数据库</a>
+        <a class="nav-pill {{ 'active' if page == 'email' else '' }}" href="/tenant/{{ tenant_name }}/email">邮件</a>
+        <a class="nav-pill {{ 'active' if page in ['security_lists', 'security_rules'] else '' }}" href="/tenant/{{ tenant_name }}/security-lists">安全</a>
+        {% endif %}
+      </nav>
+      <div class="userbar">
+        {% if current_user %}
+        <a class="nav-pill {{ 'active' if page == 'account' else '' }}" href="/account">{{ current_user }}</a>
+        {% endif %}
+        <form class="inline" method="post" action="/logout">
+          <button class="btn btn-ghost btn-sm" type="submit">退出</button>
+        </form>
+      </div>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      <div class="flash-stack">
+        {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </div>
+  {% endblock %}
+</body>
+</html>

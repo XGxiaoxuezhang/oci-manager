@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}首页 | OCI 管理器{% endblock %}
+{% block hero_title %}OCI 管理器{% endblock %}
+{% block hero_text %}多租户 Oracle Cloud 控制台，覆盖实例、抢机、救机、对象存储、自治数据库和邮件发信。{% endblock %}
+
+{% block content %}
+<section class="metrics">
+  <div class="metric">
+    <div class="label">租户数量</div>
+    <div class="value">{{ stats.tenant_count }}</div>
+  </div>
+  <div class="metric">
+    <div class="label">覆盖区域</div>
+    <div class="value">{{ stats.region_count }}</div>
+  </div>
+  <div class="metric">
+    <div class="label">最近新增</div>
+    <div class="value" style="font-size:1rem;padding-top:4px">{{ stats.latest_created or '—' }}</div>
+  </div>
+</section>
+
+<section class="section-head">
+  <div>
+    <div class="eyebrow">Tenant Dashboard</div>
+    <h2>租户总览</h2>
+    <div class="section-sub">点击租户卡片下方按钮直接进入对应功能模块。</div>
+  </div>
+  <div class="actions">
+    <a class="btn btn-ghost" href="/account">账户设置</a>
+    <a class="btn btn-primary" href="/tenant/add">＋ 添加租户</a>
+  </div>
+</section>
+
+<section class="tenant-list">
+  {% for tenant in tenants %}
+  <article class="tenant-card">
+    <div class="card-title">
+      <div>
+        <div class="eyebrow">{{ tenant.region_label }}</div>
+        <h3>{{ tenant.name }}</h3>
+      </div>
+      <span class="badge badge-accent">OCI</span>
+    </div>
+    <div class="meta-list">
+      <div class="meta-row"><span>区域</span><span>{{ tenant.region_label }}</span></div>
+      <div class="meta-row"><span>Tenancy ID</span><span>{{ tenant.tenant_id[:20] }}…</span></div>
+      <div class="meta-row"><span>创建时间</span><span>{{ tenant.created }}</span></div>
+    </div>
+    <div class="actions" style="margin-top:18px;flex-wrap:wrap;">
+      <a class="btn btn-ghost btn-sm" href="/tenant/{{ tenant.name }}/instances">实例</a>
+      <a class="btn btn-ghost btn-sm" href="/tenant/{{ tenant.name }}/launcher">抢机</a>
+      <a class="btn btn-ghost btn-sm" href="/tenant/{{ tenant.name }}/object-storage">存储</a>
+      <a class="btn btn-ghost btn-sm" href="/tenant/{{ tenant.name }}/databases">数据库</a>
+      <a class="btn btn-ghost btn-sm" href="/tenant/{{ tenant.name }}/email">邮件</a>
+      <a class="btn btn-ghost btn-sm" href="/tenant/{{ tenant.name }}/security-lists">安全</a>
+      <form class="inline" method="post" action="/tenant/{{ tenant.name }}/delete"
+            onsubmit="return confirm('确定删除租户 {{ tenant.name }}？此操作不可恢复。');">
+        <button class="btn btn-danger btn-sm" type="submit">删除</button>
+      </form>
+    </div>
+  </article>
+  {% else %}
+  <div class="empty" style="grid-column:1/-1">
+    还没有租户，先<a href="/tenant/add" style="color:var(--brand);margin-left:4px;">添加一个 OCI 租户配置</a>。
+  </div>
+  {% endfor %}
+</section>
+{% endblock %}

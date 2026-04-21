@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}救机 | OCI 管理器{% endblock %}
+{% block content %}
+<section class="section-head">
+  <div>
+    <div class="eyebrow">救机中心</div>
+    <h2>{{ instance.name }}</h2>
+    <div class="section-sub">这里集中展示串口控制台、VNC 连接信息和常用救机动作。</div>
+  </div>
+  <a class="btn btn-ghost" href="/tenant/{{ tenant_name }}/instances">返回实例列表</a>
+</section>
+
+<section class="grid grid-2">
+  <article class="panel">
+    <h3>实例信息</h3>
+    <div class="kv-grid">
+      <div class="kv-item"><strong>规格</strong>{{ instance.shape }}</div>
+      <div class="kv-item"><strong>状态</strong>{{ instance.state }}</div>
+      <div class="kv-item"><strong>可用域</strong>{{ instance.availability_domain }}</div>
+      <div class="kv-item"><strong>公网 IP</strong>{{ instance.public_ip }}</div>
+      <div class="kv-item"><strong>私网 IP</strong>{{ instance.private_ip }}</div>
+      <div class="kv-item"><strong>创建时间</strong>{{ instance.created }}</div>
+    </div>
+    <div class="actions" style="margin-top:16px;">
+      <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/start"><input type="hidden" name="next_page" value="rescue"><button class="btn btn-success" type="submit">启动</button></form>
+      <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/softstop"><input type="hidden" name="next_page" value="rescue"><button class="btn btn-warning" type="submit">软停</button></form>
+      <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/stop"><input type="hidden" name="next_page" value="rescue"><button class="btn btn-danger" type="submit">强停</button></form>
+      <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/reset"><input type="hidden" name="next_page" value="rescue"><button class="btn btn-secondary" type="submit">重启</button></form>
+    </div>
+  </article>
+
+  <article class="panel">
+    <h3>引导卷</h3>
+    {% if boot_volume %}
+    <div class="kv-grid">
+      <div class="kv-item"><strong>状态</strong>{{ boot_volume.state }}</div>
+      <div class="kv-item"><strong>容量</strong>{{ boot_volume.size_in_gbs }} GB</div>
+      <div class="kv-item"><strong>VPU/GB</strong>{{ boot_volume.vpus_per_gb }}</div>
+      <div class="kv-item"><strong>挂载 ID</strong>{{ boot_volume.attachment_id }}</div>
+    </div>
+    <form method="post" action="/tenant/{{ tenant_name }}/instance/{{ instance.id }}/rescue/boot-volume" style="margin-top:16px;">
+      <div class="field"><label>扩容到（GB）</label><input name="size_in_gbs" type="number" min="{{ (boot_volume.size_in_gbs or 50)|int + 1 }}" value="{{ (boot_volume.size_in_gbs or 50)|int + 50 }}" required></div>
+      <button class="btn btn-warning" type="submit">提交扩容</button>
+    </form>
+    {% else %}
+    <div class="empty">没有找到引导卷信息。</div>
+    {% endif %}
+  </article>
+</section>
+
+<section class="table-card" style="margin-top:20px;">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">控制台</div>
+      <h3>串口控制台与 VNC</h3>
+    </div>
+  </div>
+  <form method="post" action="/tenant/{{ tenant_name }}/instance/{{ instance.id }}/rescue/console" class="grid grid-2" style="margin-bottom:18px;">
+    <div class="field"><label>SSH 公钥</label><input name="ssh_public_key" placeholder="ssh-rsa AAAA..." required></div>
+    <div class="actions" style="align-items:end;"><button class="btn btn-primary" type="submit">创建控制台连接</button></div>
+  </form>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>连接 ID</th><th>状态</th><th>指纹</th><th>SSH 连接串</th><th>VNC 连接串</th></tr></thead>
+      <tbody>
+        {% for item in consoles %}
+        <tr>
+          <td>{{ item.id }}</td>
+          <td>{{ item.state }}</td>
+          <td><span class="small">{{ item.service_host_key_fingerprint or item.fingerprint }}</span></td>
+          <td><span class="small">{{ item.connection_string or '-' }}</span></td>
+          <td><span class="small">{{ item.vnc_connection_string or '-' }}</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5"><div class="empty">当前还没有控制台连接。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
