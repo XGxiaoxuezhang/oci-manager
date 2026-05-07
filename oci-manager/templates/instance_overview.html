@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}实例总览 | OCI 管理器{% endblock %}
+{% block hero_title %}实例总览{% endblock %}
+{% block hero_text %}跨租户汇总实例状态、IPv4/IPv6 和常用 SSH 命令。{% endblock %}
+
+{% block content %}
+<section class="metrics">
+  <div class="metric"><div class="label">租户</div><div class="value">{{ overview_totals.tenants }}</div></div>
+  <div class="metric"><div class="label">实例</div><div class="value">{{ overview_totals.instances }}</div></div>
+  <div class="metric"><div class="label">运行中</div><div class="value">{{ overview_totals.running }}</div></div>
+</section>
+
+<section class="section-head">
+  <div>
+    <div class="eyebrow">筛选</div>
+    <h2>实例</h2>
+  </div>
+  <form method="get" action="/instances" class="actions">
+    <select class="tenant-switch" name="tenant">
+      <option value="">全部租户</option>
+      {% for option in tenant_options %}
+      <option value="{{ option }}" {{ 'selected' if selected_tenant == option else '' }}>{{ option }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-secondary" type="submit">应用</button>
+  </form>
+</section>
+
+<section class="stack">
+  {% for row in overview_rows %}
+  <div class="table-card">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">{{ row.region }}</div>
+        <h2>{{ row.tenant_name }}</h2>
+        <div class="section-sub">实例 {{ row.count }} 台，运行中 {{ row.running }} 台。</div>
+      </div>
+      <a class="btn btn-secondary" href="/tenant/{{ row.tenant_name }}/instances">进入实例</a>
+    </div>
+    {% if row.status == 'error' %}
+      <div class="flash error">读取失败：{{ row.error }}</div>
+    {% else %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>名称</th><th>规格</th><th>状态</th><th>公网 IP</th><th>IPv6</th><th>SSH</th><th>操作</th></tr></thead>
+        <tbody>
+          {% for instance in row.instances %}
+          <tr>
+            <td>{{ instance.name }}</td>
+            <td>{{ instance.shape }}</td>
+            <td><span class="badge {{ 'badge-good' if instance.state == 'RUNNING' else 'badge-mid' }}">{{ instance.state }}</span></td>
+            <td>{{ instance.public_ip }}</td>
+            <td><span class="small">{{ instance.ipv6 }}</span></td>
+            {% set first_ipv6 = instance.ipv6.split(', ')[0] if instance.ipv6 != '-' else '-' %}
+            {% set ssh_cmd = 'ssh opc@' ~ instance.public_ip if instance.public_ip != '-' else 'ssh opc@' ~ first_ipv6 if first_ipv6 != '-' else '-' %}
+            <td><code>{{ ssh_cmd }}</code></td>
+            <td>{% if ssh_cmd != '-' %}<button class="btn btn-ghost" type="button" data-copy="{{ ssh_cmd }}">复制</button>{% endif %}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7"><div class="empty">这个租户当前没有实例。</div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="empty">还没有租户配置。</div>
+  {% endfor %}
+</section>
+{% endblock %}

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}首页 | OCI 管理器{% endblock %}
+{% block hero_title %}首页{% endblock %}
+{% block hero_text %}常用入口、最近操作和创建任务。{% endblock %}
+
+{% block content %}
+<section class="metrics">
+  <div class="metric"><div class="label">租户数量</div><div class="value">{{ stats.tenant_count }}</div></div>
+  <div class="metric"><div class="label">区域数量</div><div class="value">{{ stats.region_count }}</div></div>
+  <div class="metric"><div class="label">最近新增</div><div class="value" style="font-size:1.1rem">{{ stats.latest_created or '-' }}</div></div>
+</section>
+
+<section class="grid grid-3" style="margin-bottom:12px;">
+  <a class="panel" href="/tenants"><div class="eyebrow">租户</div><h3>租户管理</h3><div class="section-sub">配置、密钥和租户入口。</div></a>
+  <a class="panel" href="/instances"><div class="eyebrow">实例</div><h3>实例总览</h3><div class="section-sub">跨租户查看实例和 SSH。</div></a>
+  <a class="panel" href="/object-storage"><div class="eyebrow">存储</div><h3>对象存储</h3><div class="section-sub">按租户进入 Bucket 和对象。</div></a>
+  <a class="panel" href="/databases"><div class="eyebrow">数据库</div><h3>自治数据库</h3><div class="section-sub">创建、备份、Wallet。</div></a>
+  <a class="panel" href="/email"><div class="eyebrow">邮件</div><h3>邮件服务</h3><div class="section-sub">域名、DKIM、发件人。</div></a>
+  <a class="panel" href="/settings"><div class="eyebrow">系统</div><h3>设置</h3><div class="section-sub">运行参数和通知测试。</div></a>
+</section>
+
+<section class="grid grid-2">
+  <div class="table-card">
+    <div class="section-head">
+      <div><div class="eyebrow">最近</div><h2>最近操作</h2></div>
+      <a class="btn btn-secondary" href="/audit">全部日志</a>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>时间</th><th>租户</th><th>动作</th></tr></thead>
+        <tbody>
+          {% for event in recent_events %}
+          <tr><td>{{ event.time }}</td><td>{{ event.tenant_name }}</td><td>{{ event.action }}</td></tr>
+          {% else %}
+          <tr><td colspan="3"><div class="empty">暂无操作记录。</div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="table-card">
+    <div class="section-head"><div><div class="eyebrow">任务</div><h2>最近创建任务</h2></div></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>任务</th><th>租户</th><th>状态</th><th>尝试</th></tr></thead>
+        <tbody>
+          {% for task in recent_tasks %}
+          <tr>
+            <td>{{ task.id }}</td>
+            <td>{{ task.tenant_name }}</td>
+            <td><span class="badge {{ 'badge-good' if task.status == 'success' else 'badge-bad' if task.status in ['failed', 'cancelled', 'interrupted'] else 'badge-mid' }}">{{ task.status }}</span></td>
+            <td>{{ task.current_attempt }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4"><div class="empty">暂无创建任务。</div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}

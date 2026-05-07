@@ -1,103 +1,168 @@
-# OCI Manager
+﻿# OCI Manager
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)
-![Framework](https://img.shields.io/badge/framework-Flask-lightgrey)
+基于 Flask + OCI Python SDK 的本地 OCI 管理工具。
 
-# 注意，抢机，救机之类得功能未测试，谨慎使用，重点是数据库、邮件、对象存储的简单使用，本程序全程由ai开发，自行进行审计。
+## 当前已支持
 
-**OCI Manager** 是一个专为个人和团队运维打造的 **Oracle Cloud Infrastructure (OCI) 多租户 Web 控制台**。
-它采用极其轻量级的后端架构（Python/Flask），不需要繁重的数据库，原生支持纯服务端渲染（SSR）。配合精心设计的**暗黑工业指挥中心**风格 UI，让你抛开操作繁琐的官方控制台，聚合所有的核心 OCI 运维能力。
+- 多租户凭据管理
+- 本地登录鉴权、CSRF 防护和登录失败限速
+- 修改登录密码
+- 用户创建、密码生成、MFA 重置
+- 实例列表、电源操作、更换公网 IP、终止实例、CSV 导出
+- 实例创建任务：支持 AMD 1C1G、ARM 2C12G、ARM 4C24G 预设，并可后台循环重试创建
+- 实例创建任务持久化：服务重启后保留历史任务，中断中的任务会标记为 interrupted
+- 救机中心：支持串口控制台连接、软关机/强关机/软重启/强重启、引导卷扩容
+- Web VNC：内置 noVNC 前端，配合 websockify 在浏览器中打开控制台 VNC
+- 离线模式：页面资源本地加载，默认关闭外部通知；OCI 管理操作仍会连接 Oracle API
+- 安全列表规则增删
+- 操作日志：记录关键 POST 操作，默认写入 SQLite
+- 系统状态：检查 Python、OCI SDK、数据目录、租户配置和私钥存在性
+- 备份恢复：导出/恢复本地数据目录，SQLite 使用一致性快照
+- 实例总览：跨租户查看实例状态、公网 IP 和 SSH 命令
+- 巡检：手动检查每个租户的 OCI API 连通性
+- 通知：支持通用 Webhook 和 ntfy，用于实例创建成功/失败提醒，设置页可发送测试通知
+- 对象存储：Bucket 管理、对象上传/下载/预览/删除、新建目录、CSV 导出和 rclone 配置下载
+- 自治数据库：创建、启动、停止、Wallet 下载、手动备份、删除、备份查看和 CSV 导出
+- 邮件：域名和发件人列表、测试发信、CSV 导出
+- 免费额度提示：列出常见 Always Free 规格和成本风险点
 
-> **亮点**：无前端框架、无数据库依赖、支持自动生成高频操作命令、自动轮询化繁为简。
+## 安装
 
----
-
-## ✨ 核心特性
-
-| 功能模块 | 特性说明 |
-| :--- | :--- |
-| **🏢 多租户管理** | 一键添加、切换、删除多个 OCI 账户（租户），各租户之间环境、凭据与计费完全隔离。 |
-| **💻 实例与计算** | 可视化实例列表与状态查看；一键启停/重启机器；便捷更换实例绑定的公网 IP。 |
-| **🚀 抢机辅助 (Launcher)** | 解决热门区域始终 Free 实例配额不足的问题。自动化创建任务，采用后台守护线程循环重试（支持 ARM 4C24G 等预设）。 |
-| **🚑 机器救援** | 一键开通并生成控制台（VNC/串口）连接信息；支持快捷执行引导卷容量扩容。 |
-| **📦 对象存储** | 完善的 Bucket 管理，支持拖拽化的对象文件上传、下载与无缝的浏览器在线图片/视频预览。 |
-| **🗄️ 自治数据库** | 支持新建、启停和销毁 ADB，并且支持直接从控制台一键下载 Wallet 文件，开箱即用。 |
-| **📧 邮件发送控制** | 直连 OCI Email Delivery Data Plane！**不仅能收发测试邮件、管理发件人，还支持一键生成 DKIM 记录并直接在界面签发应用层专属的 SMTP 发信账号密码**。 |
-| **🔒 网络与安全** | 便捷查看 VCN 子网详情与管理安全列表（Security Lists）的入站/出站规则放行。 |
-
----
-
-## 🎨 界面一览 (UI Design)
-
-项目内建自研的 Design System (`static/app.css`)：
-- **暗金与黑体**，主色调深色（`#0d0f14`），点缀品牌青绿与操作蓝，带来纯正的 DevTools 体验。
-- 完善的表单和卡片网格响应式设计。支持大屏指挥台或小屏移动端查阅。
-- 安全优先：内建严格的 CSP（内容安全策略）防护和请求过滤。
-
----
-
-## 🛠️ 安装与部署
-
-本项目设计之初就考虑了极简的运维环境，部署不需要 Redis，也不需要 MySQL，即装即用：
-
-### 1. 基础环境
-确保服务器已安装 `Python 3.10+`
-
-### 2. 克隆项目与安装依赖
 ```bash
-git clone https://github.com/your-username/oci-manager.git](https://github.com/XGxiaoxuezhang/oci-manager.git
-cd oci-manager
+python -m venv .venv
+.\.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 3. 配置（生产环境必须）
-我们提供了一些基础环境变量用于增强安全性与调试：
+## Windows 启动
 
-| 环境变量名 | 默认值 | 说明 |
-| --- | --- | --- |
-| `OCI_MANAGER_SECRET_KEY` | *(自动生成)* | 极其关键的 Flask Session 独立秘钥，生产环境**务必手工设定并妥善保管**。 |
-| `OCI_MANAGER_USERNAME` | `admin` | 初次启动默认生成的系统唯一管理账号名。 |
-| `OCI_MANAGER_PASSWORD` | `admin123456` | 初次启动默认生成的初始管理密码（**部署后务必马上修改**）。 |
-| `OCI_MANAGER_DEBUG` | `""` | 设为 `1` 或 `true` 时，开启 Flask debug 热重载模式。 |
-
-### 4. 运行服务
-
-**开发测试环境：**
 ```bash
-python app.py
-# 默认将会监听 http://127.0.0.1:5000
+.\start.ps1
 ```
 
-**生产环境（推荐使用 Gunicorn 后台常驻）：**
-```bash
-# 生成随机高强度秘钥
-export OCI_MANAGER_SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-export OCI_MANAGER_PASSWORD=YourStrongPasswordHere!
+启动后访问：`http://127.0.0.1:5080`
 
-pip install gunicorn
-gunicorn -w 4 -b 127.0.0.1:5080 app:app
+常用参数：
+
+```powershell
+.\start.ps1 -Port 5080 -HostName 127.0.0.1 -DataDir .\data
 ```
-*(使用 Nginx 或 Caddy 将 `5080` 端口反代到公网域名，或者配置 Let's Encrypt 证书)*
 
----
+如果需要局域网访问，把 `-HostName` 改成 `0.0.0.0`。公网或 NAS 反代环境不要开启 `-DebugMode`。
 
-## 🏗️ 架构相关
+## NAS / Docker 启动
 
-深入了解项目的路由组织、数据 YAML 落地形式及核心 OCI SDK 封装方案，请查阅 [PROJECT_ARCHITECTURE.md](./docs/PROJECT_ARCHITECTURE.md)。其中包括了增加页面的流程、组件规范和防超时阻塞的设计。
+```bash
+docker compose up -d --build
+```
 
----
+启动后访问：`http://NAS_IP:5080`
 
-## ⚠️ 安全与免责声明
+首次部署前建议先修改 `docker-compose.yml` 里的：
 
-- 本系统会在运行目录下的 `tenants/` 文件夹中保存你上传的 OCI 私钥 (`key.pem`)：请**绝对不要**将运行时环境的文件夹直接通过 Git 提交或泄露！
-- （已在本开源版中加入限制配置，防止密钥随源码共享）。
-- 这是管理重要云资产的系统，生产环境**强烈建议套用 HTTPS 并使用复杂的密码**。
+- `OCI_MANAGER_PASSWORD`
+- `OCI_MANAGER_SECRET_KEY`
 
----
+容器数据默认挂载到外层 `./data`，包括登录配置、租户配置、私钥目录、SQLite 数据库和巡检结果。升级代码或重建容器不会覆盖这部分数据。
 
-## 🤝 参与贡献
+## 目录结构
 
-欢迎通过 Issues 提交反馈和 Bug。如果有想集成的其他 OCI 操作模块，请随时抛出 Pull Request！
+```text
+.
+├── README.md
+├── requirements.txt
+└── oci-manager/
+    ├── app.py
+    ├── templates/
+    ├── static/
+    └── tenants/
+```
 
-*License: MIT*
+默认直接运行源码时，数据会放在 `oci-manager/` 目录下。使用 `start.ps1` 或 Docker 时，数据会放在外层 `data/` 目录。
+
+`auth.yaml`、`tenants.yaml`、`app.db`、`audit.log.jsonl`、`launch_tasks.json` 和 `tenants/` 下的私钥文件都是本地数据，已经在 `.gitignore` 中忽略，不要提交到仓库。
+
+## 首次登录
+
+- 用户名：`admin`
+- 密码：`admin123456`
+
+建议首次登录后立刻在首页修改密码。
+
+也可以通过环境变量覆盖默认登录信息：
+
+- `OCI_MANAGER_USERNAME`
+- `OCI_MANAGER_PASSWORD`
+- `OCI_MANAGER_SECRET_KEY`
+- `OCI_MANAGER_DATA_DIR`
+- `OCI_MANAGER_HOST`
+- `OCI_MANAGER_PORT`
+- `OCI_MANAGER_DEBUG`
+- `OCI_MANAGER_SESSION_HOURS`
+- `OCI_MANAGER_SESSION_COOKIE_SECURE`
+- `OCI_MANAGER_LOGIN_MAX_FAILURES`
+- `OCI_MANAGER_LOGIN_WINDOW_SECONDS`
+- `OCI_MANAGER_LOGIN_LOCK_SECONDS`
+- `OCI_MANAGER_WEBHOOK_URL`
+- `OCI_MANAGER_NTFY_SERVER`
+- `OCI_MANAGER_NTFY_TOPIC`
+
+生产或公网环境建议一定设置 `OCI_MANAGER_SECRET_KEY`，并关闭 Flask debug 模式。
+
+## 常用页面
+
+- `/`：首页
+- `/tenants`：租户
+- `/instances`：实例总览，可按租户筛选
+- `/object-storage`：对象存储入口
+- `/databases`：数据库入口
+- `/email`：邮件入口
+- `/tenant/<tenant>/instances`：实例列表和创建任务
+- `/tenant/<tenant>/object-storage`：对象存储
+- `/tenant/<tenant>/databases`：自治数据库
+- `/tenant/<tenant>/email`：邮件
+- `/audit`：操作日志
+- `/system`：系统状态
+- `/settings`：运行参数和通知测试
+- `/backup`：备份恢复
+- `/cost`：免费额度与风险提示
+- `/checks`：租户 API 巡检
+
+## 通知配置
+
+默认启用离线模式，实例创建任务成功、失败或取消时不会发送外部通知。页面上的 CSS、JS 和 noVNC 文件都在 `oci-manager/static/` 内，不依赖 CDN。
+
+如果需要通知，到 `/settings` 关闭离线模式后再配置 Webhook 或 ntfy。
+
+通用 Webhook：
+
+```bash
+OCI_MANAGER_WEBHOOK_URL=https://example.com/webhook
+```
+
+ntfy：
+
+```bash
+OCI_MANAGER_NTFY_SERVER=https://ntfy.sh
+OCI_MANAGER_NTFY_TOPIC=your-private-topic
+```
+
+也可以把 `OCI_MANAGER_NTFY_SERVER` 指到自建 ntfy 服务。离线模式打开时，即使这些值存在也不会发送。
+
+## 实例创建任务
+
+创建任务需要：
+
+- 可用子网
+- 可用镜像
+- 可登录实例的 SSH 公钥
+
+任务使用进程内后台线程，状态写入本地数据目录。
+
+## 救机说明
+
+当前“救机”包含：
+
+- 串口控制台连接创建
+- 实例电源操作
+- 引导卷扩容

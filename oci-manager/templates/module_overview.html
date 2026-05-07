@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}{{ module_title }} | OCI 管理器{% endblock %}
+{% block hero_title %}{{ module_title }}{% endblock %}
+{% block hero_text %}按租户进入对应功能。{% endblock %}
+
+{% block content %}
+<section class="section-head">
+  <div>
+    <div class="eyebrow">功能入口</div>
+    <h2>{{ module_title }}</h2>
+    <div class="section-sub">选择租户后进入 {{ module_title }} 管理页。</div>
+  </div>
+</section>
+
+<section class="tenant-list">
+  {% for tenant in tenants %}
+  <article class="tenant-card">
+    <div class="card-title">
+      <div>
+        <div class="eyebrow">{{ tenant.region_label }}</div>
+        <h3>{{ tenant.name }}</h3>
+      </div>
+    </div>
+    <div class="meta-list">
+      <div class="meta-row"><span class="muted">区域</span><span>{{ tenant.region }}</span></div>
+      <div class="meta-row"><span class="muted">Tenancy</span><span>{{ tenant.tenant_id[:22] }}...</span></div>
+    </div>
+    <div class="actions">
+      <a class="btn btn-primary" href="/tenant/{{ tenant.name }}/{{ module_path }}">进入</a>
+      {% if module_path != 'instances' %}<a class="btn btn-secondary" href="/tenant/{{ tenant.name }}/instances">实例</a>{% endif %}
+      <a class="btn btn-secondary" href="/tenant/{{ tenant.name }}/security-lists">安全</a>
+    </div>
+  </article>
+  {% else %}
+  <div class="empty">还没有租户配置。</div>
+  {% endfor %}
+</section>
+{% endblock %}

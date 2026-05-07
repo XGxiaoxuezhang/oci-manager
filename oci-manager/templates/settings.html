@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}设置 | OCI 管理器{% endblock %}
+{% block hero_title %}设置{% endblock %}
+{% block hero_text %}运行模式、通知和环境参数。{% endblock %}
+
+{% block content %}
+<section class="grid grid-4" style="margin-bottom:12px;">
+  <a class="panel" href="/system"><div class="eyebrow">系统</div><h3>系统状态</h3></a>
+  <a class="panel" href="/backup"><div class="eyebrow">备份</div><h3>备份恢复</h3></a>
+  <a class="panel" href="/checks"><div class="eyebrow">巡检</div><h3>API 巡检</h3></a>
+  <a class="panel" href="/cost"><div class="eyebrow">额度</div><h3>免费额度</h3></a>
+</section>
+
+<section class="table-card">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">Runtime</div>
+      <h2>环境变量</h2>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>名称</th><th>当前值</th></tr></thead>
+      <tbody>
+        {% for name, value in env_items %}
+        <tr>
+          <td><code>{{ name }}</code></td>
+          <td>{{ value or '-' }} {% if value %}<button class="btn btn-ghost" type="button" data-copy="{{ value }}">复制</button>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel" style="margin-top:20px;">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">运行模式</div>
+      <h2>离线与通知</h2>
+    </div>
+  </div>
+  <div class="kv-grid">
+    <div class="kv-item"><strong>模式</strong>{{ '离线模式' if offline_mode else '联网通知模式' }}</div>
+    <div class="kv-item"><strong>Webhook</strong>{{ '已启用' if notification_targets.webhook else '未启用' }}</div>
+    <div class="kv-item"><strong>ntfy</strong>{{ '已启用' if notification_targets.ntfy else '未启用' }}</div>
+    <div class="kv-item"><strong>Web VNC</strong>noVNC 静态文件本地加载</div>
+  </div>
+  <form method="post" action="/settings/notifications" style="margin-top:12px;">
+    <label class="check-row">
+      <input type="checkbox" name="offline_mode" value="1" {{ 'checked' if offline_mode else '' }}>
+      <span>离线模式：关闭 Webhook/ntfy 外部通知，前端资源只从本机加载。</span>
+    </label>
+    <div class="grid grid-3">
+      <div class="field"><label>Webhook URL</label><input name="webhook_url" value="{{ app_settings.webhook_url }}" placeholder="留空"></div>
+      <div class="field"><label>ntfy Server</label><input name="ntfy_server" value="{{ app_settings.ntfy_server }}" placeholder="留空或自建 ntfy 地址"></div>
+      <div class="field"><label>ntfy Topic</label><input name="ntfy_topic" value="{{ app_settings.ntfy_topic }}" placeholder="your-topic"></div>
+    </div>
+    <button class="btn btn-primary" type="submit">保存设置</button>
+  </form>
+  <form method="post" action="/settings/notification-test" style="margin-top:12px;">
+    <button class="btn btn-secondary" type="submit" {{ 'disabled' if offline_mode else '' }}>发送测试通知</button>
+  </form>
+</section>
+{% endblock %}
