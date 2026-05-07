@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}账户 | OCI 管理器{% endblock %}
+{% block content %}
+<section class="grid grid-2">
+  <article class="panel">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">账户</div>
+        <h2>用户信息</h2>
+      </div>
+    </div>
+    <div class="kv-grid">
+      <div class="kv-item"><strong>当前登录</strong>{{ current_user }}</div>
+      <div class="kv-item"><strong>角色</strong>本地管理员</div>
+      <div class="kv-item"><strong>会话</strong>自动过期</div>
+      <div class="kv-item"><strong>安全日志</strong><a href="/audit">查看</a></div>
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">安全</div>
+        <h2>修改密码</h2>
+      </div>
+    </div>
+    <form method="post" action="/account/password">
+      <div class="field"><label>当前密码</label><input name="current_password" type="password" required></div>
+      <div class="field"><label>新密码</label><input name="new_password" type="password" minlength="8" required></div>
+      <div class="field"><label>重复新密码</label><input name="confirm_password" type="password" minlength="8" required></div>
+      <button class="btn btn-primary" type="submit">保存密码</button>
+    </form>
+  </article>
+</section>
+{% endblock %}

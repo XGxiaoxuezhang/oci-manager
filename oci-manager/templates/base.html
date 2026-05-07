@@ -1,0 +1,74 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <title>{% block title %}OCI 管理器{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+  {% block body %}
+  <div class="shell">
+    <section class="hero">
+      <div class="eyebrow">OCI</div>
+      <h1>{% block hero_title %}OCI 管理器{% endblock %}</h1>
+      <p>{% block hero_text %}租户、实例、网络、存储、数据库和任务。{% endblock %}</p>
+      {% if offline_mode %}
+      <div class="mode-line"><span class="badge badge-mid">离线模式</span><span>页面资源本地加载，外部通知已关闭；OCI 操作仍会连接 Oracle API。</span></div>
+      {% endif %}
+    </section>
+
+    <div class="topbar">
+      <nav class="navbar">
+        <a class="nav-pill {{ 'active' if page == 'home' else '' }}" href="/">首页</a>
+        <a class="nav-pill {{ 'active' if page in ['tenants', 'add_tenant', 'users'] else '' }}" href="/tenants">租户</a>
+        <a class="nav-pill {{ 'active' if page in ['instance_overview', 'instances', 'change_ip', 'rescue'] else '' }}" href="/instances">实例</a>
+        <a class="nav-pill {{ 'active' if page in ['object_storage_overview', 'object_storage', 'object_preview'] else '' }}" href="/object-storage">对象存储</a>
+        <a class="nav-pill {{ 'active' if page in ['databases_overview', 'databases'] else '' }}" href="/databases">数据库</a>
+        <a class="nav-pill {{ 'active' if page in ['email_overview', 'email'] else '' }}" href="/email">邮件</a>
+        <a class="nav-pill {{ 'active' if page == 'audit' else '' }}" href="/audit">日志</a>
+        <a class="nav-pill {{ 'active' if page in ['settings', 'system', 'backup', 'checks', 'cost'] else '' }}" href="/settings">设置</a>
+        {% if tenant_name %}
+        <a class="nav-pill {{ 'active' if page == 'users' else '' }}" href="/tenant/{{ tenant_name }}/users">用户</a>
+        <a class="nav-pill {{ 'active' if page in ['security_lists', 'security_rules'] else '' }}" href="/tenant/{{ tenant_name }}/security-lists">安全</a>
+        {% endif %}
+      </nav>
+      <div class="userbar">
+        {% if tenant_options %}
+        {% set switch_path = 'instances' %}
+        {% if page in ['object_storage', 'object_preview', 'object_storage_overview'] %}{% set switch_path = 'object-storage' %}{% endif %}
+        {% if page in ['databases', 'databases_overview'] %}{% set switch_path = 'databases' %}{% endif %}
+        {% if page in ['email', 'email_overview'] %}{% set switch_path = 'email' %}{% endif %}
+        {% if page in ['users'] %}{% set switch_path = 'users' %}{% endif %}
+        {% if page in ['security_lists', 'security_rules'] %}{% set switch_path = 'security-lists' %}{% endif %}
+        <select class="tenant-switch" data-tenant-switch data-module-path="{{ switch_path }}" aria-label="快速切换租户">
+          <option value="">切换租户</option>
+          {% for option in tenant_options %}
+          <option value="{{ option }}" {{ 'selected' if tenant_name == option else '' }}>{{ option }}</option>
+          {% endfor %}
+        </select>
+        {% endif %}
+        {% if current_user %}<a class="nav-pill {{ 'active' if page == 'account' else '' }}" href="/account">{{ current_user }}</a>{% endif %}
+        <form class="inline" method="post" action="/logout">
+          <button class="btn btn-ghost" type="submit">退出登录</button>
+        </form>
+      </div>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      <div class="flash-stack">
+        {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </div>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  {% endblock %}
+</body>
+</html>

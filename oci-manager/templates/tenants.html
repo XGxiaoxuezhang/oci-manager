@@ -1,0 +1,54 @@
+﻿{% extends "base.html" %}
+
+{% block title %}租户 | OCI 管理器{% endblock %}
+{% block hero_title %}租户{% endblock %}
+{% block hero_text %}管理本地保存的 OCI 租户配置和常用入口。{% endblock %}
+{% block content %}
+<section class="metrics">
+  <div class="metric"><div class="label">租户数量</div><div class="value">{{ stats.tenant_count }}</div></div>
+  <div class="metric"><div class="label">区域数量</div><div class="value">{{ stats.region_count }}</div></div>
+  <div class="metric"><div class="label">最近新增</div><div class="value" style="font-size:1.1rem">{{ stats.latest_created or '-' }}</div></div>
+</section>
+
+<section class="section-head">
+  <div>
+    <div class="eyebrow">租户面板</div>
+    <h2>租户列表</h2>
+    <div class="section-sub">租户配置、区域和常用入口。</div>
+  </div>
+  <div class="actions">
+    <a class="btn btn-secondary" href="/instances">实例总览</a>
+    <a class="btn btn-primary" href="/tenant/add">添加租户</a>
+  </div>
+</section>
+
+<section class="tenant-list">
+  {% for tenant in tenants %}
+  <article class="tenant-card">
+    <div class="card-title">
+      <div>
+        <div class="eyebrow">{{ tenant.region_label }}</div>
+        <h3>{{ tenant.name }}</h3>
+      </div>
+    </div>
+    <div class="meta-list">
+      <div class="meta-row"><span class="muted">区域</span><span>{{ tenant.region }}</span></div>
+      <div class="meta-row"><span class="muted">Tenancy</span><span>{{ tenant.tenant_id[:22] }}... <button class="btn btn-ghost" type="button" data-copy="{{ tenant.tenant_id }}">复制</button></span></div>
+      <div class="meta-row"><span class="muted">创建时间</span><span>{{ tenant.created }}</span></div>
+    </div>
+    <div class="tenant-actions">
+      <a class="btn btn-primary" href="/tenant/{{ tenant.name }}/instances">实例</a>
+      <a class="btn btn-secondary" href="/tenant/{{ tenant.name }}/object-storage">对象存储</a>
+      <a class="btn btn-secondary" href="/tenant/{{ tenant.name }}/databases">数据库</a>
+      <a class="btn btn-secondary" href="/tenant/{{ tenant.name }}/email">邮件</a>
+      <form class="inline" method="post" action="/tenant/{{ tenant.name }}/delete" data-confirm-value="{{ tenant.name }}" data-confirm-label="租户名称">
+        <input type="hidden" name="confirm_name" value="">
+        <button class="btn btn-danger" type="submit">删除</button>
+      </form>
+    </div>
+  </article>
+  {% else %}
+  <div class="empty">当前还没有租户，先添加一个 OCI API 租户配置。</div>
+  {% endfor %}
+</section>
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}登录 | OCI 管理器{% endblock %}
+{% block body %}
+<div class="login-shell">
+  <div class="login-panel stack">
+    <section class="hero">
+      <div class="eyebrow">OCI</div>
+      <h1>登录</h1>
+      <p>默认账号 <code>{{ auth_username }}</code>。首次部署后请修改密码。</p>
+    </section>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      <div class="flash-stack">
+        {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% endwith %}
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow">登录</div>
+          <h2>管理员登录</h2>
+        </div>
+      </div>
+      <form method="post">
+        <div class="field">
+          <label>用户名</label>
+          <input name="username" value="{{ auth_username }}" required>
+        </div>
+        <div class="field">
+          <label>密码</label>
+          <input name="password" type="password" required>
+        </div>
+        <button class="btn btn-primary" type="submit">登录</button>
+      </form>
+    </section>
+  </div>
+</div>
+{% endblock %}

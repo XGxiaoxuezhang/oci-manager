@@ -1,0 +1,29 @@
+services:
+  oci-manager:
+    build: .
+    container_name: oci-manager
+    restart: unless-stopped
+    ports:
+      - "5080:5080"
+      - "6080-6099:6080-6099"
+    environment:
+      OCI_MANAGER_HOST: "0.0.0.0"
+      OCI_MANAGER_PORT: "5080"
+      OCI_MANAGER_DATA_DIR: "/data"
+      OCI_MANAGER_DEBUG: "0"
+      OCI_MANAGER_USERNAME: "admin"
+      OCI_MANAGER_PASSWORD: "change-this-password"
+      OCI_MANAGER_SECRET_KEY: "change-this-secret-key"
+      OCI_MANAGER_SESSION_HOURS: "12"
+      OCI_MANAGER_SESSION_COOKIE_SECURE: "0"
+      OCI_MANAGER_LOGIN_MAX_FAILURES: "8"
+      OCI_MANAGER_LOGIN_WINDOW_SECONDS: "600"
+      OCI_MANAGER_LOGIN_LOCK_SECONDS: "900"
+      OCI_MANAGER_WEBHOOK_URL: ""
+      OCI_MANAGER_NTFY_SERVER: ""
+      OCI_MANAGER_NTFY_TOPIC: ""
+      OCI_MANAGER_CLEAR_PROXY: "0"
+      OCI_MANAGER_OCI_CONNECT_TIMEOUT: "8"
+      OCI_MANAGER_OCI_READ_TIMEOUT: "30"
+    volumes:
+      - ./data:/data

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}免费额度 | OCI 管理器{% endblock %}
+{% block hero_title %}免费额度与风险提示{% endblock %}
+{% block hero_text %}按资源清单估算常见 Always Free 用量，不等于账单。{% endblock %}
+
+{% block content %}
+<section class="section-head">
+  <div>
+    <div class="eyebrow">筛选</div>
+    <h2>免费额度估算</h2>
+    <div class="section-sub">默认读取第一个租户，可切换其他租户。</div>
+  </div>
+  <form method="get" action="/cost" class="actions">
+    <select class="tenant-switch" name="tenant">
+      {% for tenant in tenants %}
+      <option value="{{ tenant.name }}" {{ 'selected' if selected_tenant == tenant.name }}>{{ tenant.name }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-secondary" type="submit">应用</button>
+  </form>
+</section>
+
+{% if load_error %}
+<div class="flash error">免费额度读取失败：{{ load_error }}</div>
+{% endif %}
+
+<section class="grid grid-3" style="margin-bottom:12px;">
+  {% for item in free_items %}
+  <article class="info-card">
+    <div class="section-head">
+      <div><div class="eyebrow">{{ item.key }}</div><h3>{{ item.label }}</h3></div>
+      <span class="badge {{ 'badge-good' if item.status == 'ok' else 'badge-bad' }}">{{ item.status }}</span>
+    </div>
+    <div class="metric" style="box-shadow:none;border-color:var(--line-soft);">
+      <div class="label">已用 / 常见免费额度</div>
+      <div class="value" style="font-size:1.4rem">{{ item.used }} / {{ item.limit }} {{ item.unit }}</div>
+    </div>
+    <div class="quota-bar"><span style="width: {{ [item.percent, 100]|min }}%"></span></div>
+  </article>
+  {% else %}
+  <div class="empty">还没有可展示的用量。</div>
+  {% endfor %}
+</section>
+
+{% if risks %}
+<section class="table-card" style="margin-bottom:12px;">
+  <div class="section-head"><div><div class="eyebrow">风险</div><h2>风险提示</h2></div></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>级别</th><th>内容</th></tr></thead>
+      <tbody>
+        {% for risk in risks %}
+        <tr><td><span class="badge {{ 'badge-bad' if risk.level == 'bad' else 'badge-mid' }}">{{ risk.level }}</span></td><td>{{ risk.text }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<section class="grid grid-3">
+  {% for rule in rules %}
+  <div class="info-card">
+    <span class="badge {{ 'badge-good' if rule.level == 'good' else 'badge-mid' }}">{{ rule.level }}</span>
+    <h3 style="margin-top:12px">{{ rule.title }}</h3>
+    <p class="section-sub">{{ rule.text }}</p>
+  </div>
+  {% endfor %}
+</section>
+{% endblock %}
