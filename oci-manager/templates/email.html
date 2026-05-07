@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+
+{% block title %}邮件 | OCI 管理器{% endblock %}
+{% block content %}
+<section class="metrics">
+  <div class="metric"><div class="label">邮件域名</div><div class="value">{{ email_stats.domain_count }}</div></div>
+  <div class="metric"><div class="label">已激活域名</div><div class="value">{{ email_stats.active_domain_count }}</div></div>
+  <div class="metric"><div class="label">发件人</div><div class="value">{{ email_stats.sender_count }}</div></div>
+</section>
+
+{% if load_error %}
+<div class="flash error">邮件配置读取失败：{{ load_error }}</div>
+{% endif %}
+
+<section class="grid grid-2">
+  <article class="panel">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">端点</div>
+        <h2>邮件提交配置</h2>
+      </div>
+    </div>
+    <div class="kv-grid">
+      <div class="kv-item"><strong>HTTPS Submit</strong><span class="code">{{ email_configuration.http_submit_endpoint }}</span> <button class="btn btn-ghost" type="button" data-copy="{{ email_configuration.http_submit_endpoint }}">复制</button></div>
+      <div class="kv-item"><strong>SMTP Submit</strong><span class="code">{{ email_configuration.smtp_submit_endpoint }}</span> <button class="btn btn-ghost" type="button" data-copy="{{ email_configuration.smtp_submit_endpoint }}">复制</button></div>
+      <div class="kv-item"><strong>SMTP 端口</strong>587 / STARTTLS <button class="btn btn-ghost" type="button" data-copy="{{ email_configuration.smtp_submit_endpoint }}:587">复制地址</button></div>
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">说明</div>
+        <h2>发信检查</h2>
+      </div>
+      <div class="actions">
+        <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/email/export?type=senders">导出发件人</a>
+        <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/email/export?type=domains">导出域名</a>
+        <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/email/export?type=dkims">导出 DKIM</a>
+      </div>
+    </div>
+    <div class="stack">
+      {% for guide in email_guides %}
+      <div class="kv-item">{{ guide }}</div>
+      {% endfor %}
+    </div>
+  </article>
+</section>
+
+<section class="grid grid-2" style="margin-top:20px;">
+  <article class="panel">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">域名</div>
+        <h2>添加邮件域名</h2>
+      </div>
+    </div>
+    <form method="post" action="/tenant/{{ tenant_name }}/email/domains">
+      <div class="field"><label>域名</label><input name="domain_name" placeholder="example.com" required></div>
+      <div class="field"><label>描述</label><input name="description" placeholder="可选"></div>
+      <button class="btn btn-primary" type="submit">添加域名</button>
+    </form>
+  </article>
+
+  <article class="panel">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">发件人</div>
+        <h2>添加发件人</h2>
+        <div class="section-sub">先在域名里完成 DNS 配置，再把允许发信的邮箱地址加进来。</div>
+      </div>
+    </div>
+    <form method="post" action="/tenant/{{ tenant_name }}/email/senders">
+      <div class="field">
+        <label>发件人邮箱</label>
+        <input name="email_address" type="email" placeholder="noreply@your-domain.com" required>
+      </div>
+      <button class="btn btn-primary" type="submit">添加发件人</button>
+    </form>
+  </article>
+</section>
+
+<section class="grid grid-2" style="margin-top:20px;">
+  <article class="panel">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">发信测试</div>
+        <h2>发送测试邮件</h2>
+        <div class="section-sub">验证域名和发件人状态。</div>
+      </div>
+    </div>
+    <form method="post" action="/tenant/{{ tenant_name }}/email/send-test">
+      <div class="grid grid-2">
+        <div class="field">
+          <label>发件人邮箱</label>
+          <input name="sender_email" type="email" list="approved-senders" placeholder="noreply@your-domain.com" required>
+        </div>
+        <div class="field">
+          <label>收件人邮箱</label>
+          <input name="to_email" type="email" placeholder="you@example.com" required>
+        </div>
+      </div>
+      <div class="grid grid-2">
+        <div class="field">
+          <label>主题</label>
+          <input name="subject" value="OCI 邮件测试">
+        </div>
+        <div class="field">
+          <label>回复邮箱</label>
+          <input name="reply_to" type="email" placeholder="support@your-domain.com">
+        </div>
+      </div>
+      <div class="field">
+        <label>正文</label>
+        <textarea name="body_text">这是一封来自 OCI 管理器的测试邮件。</textarea>
+      </div>
+      <datalist id="approved-senders">
+        {% for sender in senders %}<option value="{{ sender.email_address }}">{% endfor %}
+      </datalist>
+      <button class="btn btn-primary" type="submit">发送测试邮件</button>
+    </form>
+  </article>
+</section>
+
+<section class="table-card" style="margin-top:20px;">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">域名</div>
+      <h2>邮件域名列表</h2>
+      <div class="section-sub">当前租户已有邮件域名。</div>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>域名</th><th>状态</th><th>DKIM</th><th>描述</th><th>创建时间</th></tr></thead>
+      <tbody>
+        {% for domain in email_domains %}
+        <tr>
+          <td>{{ domain.name }}</td>
+          <td><span class="badge {{ 'badge-good' if domain.state == 'ACTIVE' else 'badge-mid' }}">{{ domain.state }}</span></td>
+          <td><span class="code">{{ domain.active_dkim_id }}</span></td>
+          <td>{{ domain.description or '-' }}</td>
+          <td>{{ domain.created }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5"><div class="empty">当前没有邮件域名。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="table-card" style="margin-top:20px;">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">DKIM</div>
+      <h2>DKIM 记录</h2>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>域名</th><th>名称</th><th>状态</th><th>CNAME</th><th>TXT</th><th>创建时间</th></tr></thead>
+      <tbody>
+        {% for dkim in dkims %}
+        <tr>
+          <td>{{ dkim.domain }}</td>
+          <td>{{ dkim.name }}</td>
+          <td><span class="badge {{ 'badge-good' if dkim.state == 'ACTIVE' else 'badge-mid' }}">{{ dkim.state }}</span></td>
+          <td><span class="code">{{ dkim.cname_record_value }}</span> <button class="btn btn-ghost" type="button" data-copy="{{ dkim.cname_record_value }}">复制</button></td>
+          <td><span class="code">{{ dkim.txt_record_value }}</span> <button class="btn btn-ghost" type="button" data-copy="{{ dkim.txt_record_value }}">复制</button></td>
+          <td>{{ dkim.created }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6"><div class="empty">当前没有 DKIM 记录。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="table-card" style="margin-top:20px;">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">发件人</div>
+      <h2>Approved Sender 列表</h2>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>邮箱</th><th>状态</th><th>IP Pool</th><th>创建时间</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for sender in senders %}
+        <tr>
+          <td>{{ sender.email_address }}</td>
+          <td><span class="badge {{ 'badge-good' if sender.state == 'ACTIVE' else 'badge-mid' }}">{{ sender.state }}</span></td>
+          <td><span class="code">{{ sender.email_ip_pool_id }}</span></td>
+          <td>{{ sender.created }}</td>
+          <td>
+            <form class="inline" method="post" action="/tenant/{{ tenant_name }}/email/senders/{{ sender.id }}/delete" onsubmit="return confirm('确认删除发件人 {{ sender.email_address }} 吗？');">
+              <button class="btn btn-danger" type="submit">删除</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5"><div class="empty">当前没有发件人。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

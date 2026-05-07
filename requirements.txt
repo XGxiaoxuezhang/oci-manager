@@ -1,0 +1,4 @@
+﻿Flask>=3.0,<4.0
+oci>=2.126.0
+PyYAML>=6.0
+websockify>=0.12.0

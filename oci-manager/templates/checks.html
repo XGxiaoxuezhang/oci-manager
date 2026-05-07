@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}自动巡检 | OCI 管理器{% endblock %}
+{% block hero_title %}自动巡检{% endblock %}
+{% block hero_text %}租户 API 连通性检查。{% endblock %}
+
+{% block content %}
+<section class="section-head">
+  <div>
+    <div class="eyebrow">Checks</div>
+    <h2>租户 API 巡检</h2>
+    <div class="section-sub">最近巡检：{{ results.time if results else '-' }}</div>
+  </div>
+  <form method="post" action="/checks/run">
+    <button class="btn btn-primary" type="submit">立即巡检</button>
+  </form>
+</section>
+
+<section class="table-card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>租户</th><th>状态</th><th>信息</th></tr></thead>
+      <tbody>
+        {% if results %}
+          {% for item in results.tenants %}
+          <tr>
+            <td>{{ item.tenant_name }}</td>
+            <td><span class="badge {{ 'badge-good' if item.status == 'ok' else 'badge-bad' }}">{{ item.status }}</span></td>
+            <td>{{ item.message }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3"><div class="empty">没有租户可巡检。</div></td></tr>
+          {% endfor %}
+        {% else %}
+        <tr><td colspan="3"><div class="empty">还没有巡检结果。</div></td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

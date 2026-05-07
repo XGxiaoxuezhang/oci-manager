@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}操作日志 | OCI 管理器{% endblock %}
+{% block hero_title %}操作日志{% endblock %}
+{% block hero_text %}本地变更操作记录。{% endblock %}
+
+{% block content %}
+<section class="section-head">
+  <div>
+    <div class="eyebrow">Audit</div>
+    <h2>最近操作</h2>
+    <div class="section-sub">不记录密码、私钥或 SSH 公钥内容。</div>
+  </div>
+</section>
+
+<section class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>时间</th>
+        <th>用户</th>
+        <th>租户</th>
+        <th>动作</th>
+        <th>状态</th>
+        <th>路径</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for event in events %}
+      <tr>
+        <td>{{ event.time }}</td>
+        <td>{{ event.user }}</td>
+        <td>{{ event.tenant_name }}</td>
+        <td>{{ event.action }}</td>
+        <td><span class="badge badge-mid">{{ event.status }}</span></td>
+        <td>{{ event.details.path }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">还没有操作记录。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Web VNC | OCI 管理器{% endblock %}
+{% block hero_title %}Web VNC{% endblock %}
+{% block hero_text %}{{ tenant_name }} / {{ instance_id }} / 127.0.0.1:{{ vnc_port }}{% endblock %}
+
+{% block content %}
+<section class="section-head">
+  <div>
+    <div class="eyebrow">noVNC</div>
+    <h2>浏览器 VNC</h2>
+    <div class="section-sub">WebSocket 端口：{{ web_port }}；VNC 隧道端口：{{ vnc_port }}</div>
+  </div>
+  <div class="actions">
+    <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/instance/{{ instance_id }}/rescue">返回救机</a>
+    <button class="btn btn-ghost" type="button" data-copy="127.0.0.1:{{ vnc_port }}">复制本地 VNC 地址</button>
+  </div>
+</section>
+
+<section class="panel">
+  <div id="novnc-status" class="flash">正在连接 Web VNC...</div>
+  <div id="novnc-screen" class="novnc-screen"></div>
+</section>
+
+<script type="module">
+  import RFB from "{{ url_for('static', filename='vendor/novnc/lib/rfb.js') }}";
+
+  const screen = document.getElementById("novnc-screen");
+  const status = document.getElementById("novnc-status");
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+  const url = `${protocol}://${window.location.hostname}:{{ web_port }}/`;
+
+  try {
+    const rfb = new RFB(screen, url, { credentials: {} });
+    rfb.scaleViewport = true;
+    rfb.resizeSession = false;
+    rfb.viewOnly = false;
+    rfb.addEventListener("connect", () => {
+      status.className = "flash success";
+      status.textContent = "已连接。";
+    });
+    rfb.addEventListener("disconnect", (event) => {
+      status.className = "flash error";
+      status.textContent = event.detail.clean ? "连接已关闭。" : "连接异常断开。";
+    });
+    rfb.addEventListener("credentialsrequired", () => {
+      status.className = "flash error";
+      status.textContent = "VNC 要求密码，当前未配置密码。";
+    });
+  } catch (error) {
+    status.className = "flash error";
+    status.textContent = `启动 noVNC 失败：${error}`;
+  }
+</script>
+{% endblock %}

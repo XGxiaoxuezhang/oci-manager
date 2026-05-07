@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}备份恢复 | OCI 管理器{% endblock %}
+{% block hero_title %}备份恢复{% endblock %}
+{% block hero_text %}导出或恢复本地数据目录。{% endblock %}
+
+{% block content %}
+<section class="grid grid-2">
+  <div class="panel">
+    <h3>导出备份</h3>
+    <p class="section-sub">当前数据目录共有 {{ file_count }} 个文件。备份包可能包含私钥。</p>
+    <div class="actions">
+      <a class="btn btn-primary" href="/backup/export">下载备份 ZIP</a>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>恢复备份</h3>
+    <p class="section-sub">恢复会覆盖同名文件。恢复后请重启服务。</p>
+    <form method="post" action="/backup/restore" enctype="multipart/form-data">
+      <div class="field">
+        <label>备份 ZIP</label>
+        <input type="file" name="backup_file" accept=".zip" required>
+      </div>
+      <button class="btn btn-warning" type="submit" onclick="return confirm('确认恢复备份并覆盖同名文件吗？');">上传并恢复</button>
+    </form>
+  </div>
+</section>
+{% endblock %}
