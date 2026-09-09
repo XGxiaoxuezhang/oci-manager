@@ -1,13 +1,12 @@
 {% extends "base.html" %}
 
 {% block title %}Web VNC | OCI 管理器{% endblock %}
-{% block hero_title %}Web VNC{% endblock %}
-{% block hero_text %}{{ tenant_name }} / {{ instance_id }} / 127.0.0.1:{{ vnc_port }}{% endblock %}
+{% block page_title %}Web VNC{% endblock %}
+{% block page_desc %}{{ tenant_name }} / {{ instance_id }} / 127.0.0.1:{{ vnc_port }}{% endblock %}
 
 {% block content %}
 <section class="section-head">
   <div>
-    <div class="eyebrow">noVNC</div>
     <h2>浏览器 VNC</h2>
     <div class="section-sub">WebSocket 端口：{{ web_port }}；VNC 隧道端口：{{ vnc_port }}</div>
   </div>
@@ -28,7 +27,7 @@
   const screen = document.getElementById("novnc-screen");
   const status = document.getElementById("novnc-status");
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const url = `${protocol}://${window.location.hostname}:{{ web_port }}/`;
+  const url = `${protocol}://127.0.0.1:{{ web_port }}/`;
 
   try {
     const rfb = new RFB(screen, url, { credentials: {} });

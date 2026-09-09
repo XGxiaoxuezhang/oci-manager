@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}云端审计 | OCI 管理器{% endblock %}
+{% block page_title %}云端审计{% endblock %}
+{% block page_desc %}租户：{{ tenant_name }} · OCI 记录的云端操作事件，保留 90 天{% endblock %}
+{% block page_actions %}
+<a class="btn btn-secondary" href="/audit">本地操作日志</a>
+{% endblock %}
+
+{% block content %}
+
+{% if load_error %}
+<div class="flash error">云端审计读取失败：{{ load_error }}</div>
+{% endif %}
+
+<section class="panel" style="margin-bottom:12px;">
+  <form method="get">
+    <div class="grid grid-2">
+      <div class="field">
+        <label>时间范围</label>
+        <select name="hours">
+          {% for value, label in audit_range_options %}
+          <option value="{{ value }}" {% if value|string == audit_hours|string %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>关键字（操作者 / IP / 操作 / 资源）</label>
+        <input type="text" name="q" value="{{ audit_keyword }}" placeholder="例如 LaunchInstance、某个 IP 或用户名">
+      </div>
+    </div>
+    <div class="actions"><button class="btn btn-primary" type="submit">查询</button></div>
+  </form>
+</section>
+
+{% if audit_summary.total %}
+<section class="grid grid-3" style="margin-bottom:12px;">
+  <div class="metric">
+    <div class="label">事件总数</div>
+    <div class="value">{{ audit_summary.total }}</div>
+  </div>
+  <div class="metric">
+    <div class="label">主要操作者</div>
+    <div class="value" style="font-size:.95rem;">
+      {% for name, count in audit_summary.top_principals %}{{ name }} ({{ count }}){% if not loop.last %}<br>{% endif %}{% else %}—{% endfor %}
+    </div>
+  </div>
+  <div class="metric">
+    <div class="label">主要来源 IP</div>
+    <div class="value" style="font-size:.95rem;">
+      {% for ip, count in audit_summary.top_ips %}{{ ip }} ({{ count }}){% if not loop.last %}<br>{% endif %}{% else %}—{% endfor %}
+    </div>
+  </div>
+</section>
+{% endif %}
+
+<section class="table-card">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>时间</th><th>操作</th><th>操作者</th><th>凭据</th><th>来源 IP</th><th>资源</th><th>结果</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in audit_events %}
+        <tr>
+          <td>{{ item.time }}</td>
+          <td>{{ item.action }}</td>
+          <td>{{ item.principal }}</td>
+          <td><span class="small">{{ item.credential }}</span></td>
+          <td>{{ item.ip }}</td>
+          <td><span class="small">{{ item.resource }}</span></td>
+          <td>{{ item.status }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7"><div class="empty">该时间范围内没有匹配的审计事件。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% if audit_truncated %}
+<div class="flash warn" style="margin-top:12px;">事件较多，仅展示最近 500 条。缩小时间范围或加关键字可以更精确。</div>
+{% endif %}
+{% endblock %}

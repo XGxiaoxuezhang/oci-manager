@@ -1,19 +1,17 @@
 {% extends "base.html" %}
 
 {% block title %}数据库 | OCI 管理器{% endblock %}
+{% block page_title %}数据库{% endblock %}
+{% block page_desc %}自治数据库 · 租户 {{ tenant_name }}{% endblock %}
+{% block page_actions %}
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/databases/export">导出 CSV</a>
+{% endblock %}
+
 {% block content %}
 <section class="metrics">
   <div class="metric"><div class="label">数据库数量</div><div class="value">{{ database_stats.total }}</div></div>
   <div class="metric"><div class="label">可用中</div><div class="value">{{ database_stats.available }}</div></div>
   <div class="metric"><div class="label">免费层</div><div class="value">{{ database_stats.free_tier }}</div></div>
-</section>
-
-<section class="section-head">
-  <div>
-    <div class="eyebrow">数据库</div>
-    <h2>自治数据库</h2>
-  </div>
-  <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/databases/export">导出 CSV</a>
 </section>
 
 {% if load_error %}
@@ -24,7 +22,6 @@
   <article class="panel">
     <div class="section-head">
       <div>
-        <div class="eyebrow">创建</div>
         <h2>创建自治数据库</h2>
         <div class="section-sub">免费层会自动固定为 1 核 / 20 GB，并关闭自动扩缩容。</div>
       </div>
@@ -65,7 +62,6 @@
     {% if selected_database %}
     <div class="section-head">
       <div>
-        <div class="eyebrow">详情</div>
         <h2>{{ selected_database.display_name }}</h2>
         <div class="section-sub">{{ selected_database.name }}</div>
       </div>
@@ -83,12 +79,12 @@
       <div class="kv-item"><strong>mTLS</strong>{{ '是' if selected_database.is_mtls_connection_required else '否' }}</div>
       <div class="kv-item"><strong>白名单</strong>{{ selected_database.whitelisted_ips|join(', ') if selected_database.whitelisted_ips else '未设置' }}</div>
     </div>
-    <div class="section-head" style="margin-top:18px;"><div><div class="eyebrow">连接</div><h3>连接说明</h3></div></div>
+    <div class="section-head" style="margin-top:18px;"><div><h3>连接说明</h3></div></div>
     <div class="stack">
       <div class="kv-item"><strong>连接条件</strong><div class="small">数据库运行中；mTLS=是时需 Wallet。</div></div>
       <div class="kv-item"><strong>默认用户</strong><div class="small">ADMIN</div></div>
     </div>
-    <div class="section-head" style="margin-top:18px;"><div><div class="eyebrow">连接串</div><h3>连接串列表</h3></div></div>
+    <div class="section-head" style="margin-top:18px;"><div><h3>连接串列表</h3></div></div>
     {% if selected_database.connection_strings %}
     <div class="stack">
       {% for item in selected_database.connection_strings %}
@@ -103,24 +99,24 @@
     {% else %}
     <div class="empty">当前还没有可展示的连接串。</div>
     {% endif %}
-    <div class="section-head" style="margin-top:18px;"><div><div class="eyebrow">Wallet</div><h3>下载 Wallet</h3></div></div>
+    <div class="section-head" style="margin-top:18px;"><div><h3>下载 Wallet</h3></div></div>
     <form method="post" action="/tenant/{{ tenant_name }}/databases/{{ selected_database.id }}/wallet">
       <div class="field"><label>Wallet 压缩包密码</label><input name="wallet_password" type="password" minlength="8" placeholder="下载 Wallet 时需要单独设置一个密码" required></div>
       <button class="btn btn-primary" type="submit">下载 Wallet</button>
     </form>
-    <div class="section-head" style="margin-top:18px;"><div><div class="eyebrow">备份</div><h3>手动备份</h3></div></div>
+    <div class="section-head" style="margin-top:18px;"><div><h3>手动备份</h3></div></div>
     <form method="post" action="/tenant/{{ tenant_name }}/databases/{{ selected_database.id }}/backup">
       <div class="field"><label>备份名称</label><input name="display_name" placeholder="{{ selected_database.name }}-manual"></div>
       <button class="btn btn-secondary" type="submit" onclick="return confirm('确认提交手动备份请求吗？');">创建备份</button>
     </form>
-    <div class="section-head" style="margin-top:18px;"><div><div class="eyebrow">危险操作</div><h3>删除数据库</h3></div></div>
+    <div class="section-head" style="margin-top:18px;"><div><h3>删除数据库</h3></div></div>
     <form method="post" action="/tenant/{{ tenant_name }}/databases/{{ selected_database.id }}/delete">
       <input type="hidden" name="expected_name" value="{{ selected_database.name }}">
       <div class="field"><label>输入数据库名确认删除</label><input name="confirm_name" placeholder="请输入 {{ selected_database.name }}" required></div>
       <button class="btn btn-danger" type="submit" onclick="return confirm('确定提交删除数据库请求吗？此操作不可逆。');">删除数据库</button>
     </form>
     {% else %}
-    <div class="section-head"><div><div class="eyebrow">详情</div><h2>选择一个数据库</h2></div></div>
+    <div class="section-head"><div><h2>选择一个数据库</h2></div></div>
     <div class="empty">选择数据库后显示连接串、Wallet 和删除入口。</div>
     {% endif %}
   </article>
@@ -129,7 +125,6 @@
 <section class="table-card" style="margin-top:20px;">
   <div class="section-head">
     <div>
-      <div class="eyebrow">清单</div>
       <h2>自治数据库列表</h2>
     </div>
   </div>
@@ -164,7 +159,7 @@
 
 {% if selected_database %}
 <section class="table-card" style="margin-top:20px;">
-  <div class="section-head"><div><div class="eyebrow">备份</div><h2>最近备份</h2></div></div>
+  <div class="section-head"><div><h2>最近备份</h2></div></div>
   <div class="table-wrap">
     <table>
       <thead><tr><th>名称</th><th>类型</th><th>状态</th><th>开始时间</th><th>结束时间</th></tr></thead>

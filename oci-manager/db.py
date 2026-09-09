@@ -70,7 +70,35 @@ def init_db() -> None:
             """
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_login_attempts_addr_time ON login_attempts(remote_addr, time DESC)")
-        conn.execute("INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('schema_version', '2')")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS resource_schedules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_name TEXT NOT NULL,
+                instance_id TEXT NOT NULL,
+                instance_name TEXT NOT NULL,
+                action TEXT NOT NULL,
+                time_hhmm TEXT NOT NULL,
+                days TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                last_run_date TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cost_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                tenant_name TEXT NOT NULL,
+                items_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(date, tenant_name)
+            )
+            """
+        )
+        conn.execute("INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('schema_version', '3')")
 
 
 def record_login_attempt(remote_addr: str, username: str, success: bool) -> None:
@@ -113,5 +141,12 @@ def cleanup_runtime_rows() -> None:
         )
 
 
-init_db()
-cleanup_runtime_rows()
+
+def bootstrap() -> None:
+    """建表并清理过期运行数据。由 app 启动时显式调用一次。
+
+    原先写在模块末尾，import db 就会触发磁盘 IO 和一次全表清理，
+    任何只想读两个函数的脚本都会被拖累。
+    """
+    init_db()
+    cleanup_runtime_rows()

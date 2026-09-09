@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}网络安全组 | OCI 管理器{% endblock %}
+{% block page_title %}网络安全组{% endblock %}
+{% block page_desc %}租户：{{ tenant_name }} · NSG 与安全列表并集生效{% endblock %}
+{% block page_actions %}
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/network">VCN 网络</a>
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/security-lists">安全列表</a>
+{% endblock %}
+
+{% block content %}
+
+{% if load_error %}
+<div class="flash error">{{ load_error }}</div>
+{% endif %}
+
+<div class="flash">
+  NSG 规则作用于<strong>网卡</strong>，安全列表作用于<strong>子网</strong>，两者取并集。
+  排查端口连通性时，只看其中一个容易得出错误结论。
+</div>
+
+<section class="table-card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>名称</th><th>状态</th><th>关联网卡</th><th>创建时间</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for nsg in nsgs %}
+        <tr>
+          <td>{{ nsg.name }}</td>
+          <td><span class="badge {{ 'badge-good' if nsg.state == 'AVAILABLE' else 'badge-mid' }}">{{ nsg.state }}</span></td>
+          <td>
+            {% if nsg.vnic_count < 0 %}
+            <span class="small">读取失败</span>
+            {% elif nsg.vnic_count == 0 %}
+            <span class="badge badge-warn">未关联</span>
+            {% else %}
+            {{ nsg.vnic_count }}
+            {% endif %}
+          </td>
+          <td>{{ nsg.created }}</td>
+          <td><a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/nsg/{{ nsg.id }}">规则</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5"><div class="empty">当前 compartment 下没有网络安全组。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

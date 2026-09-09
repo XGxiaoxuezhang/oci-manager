@@ -1,14 +1,13 @@
 {% extends "base.html" %}
 
 {% block title %}添加租户 | OCI 管理器{% endblock %}
+{% block page_title %}添加租户{% endblock %}
+{% block page_desc %}填写 OCI API 凭据，私钥会保存到当前项目的租户目录。{% endblock %}
+{% block page_actions %}
+<a class="btn btn-secondary" href="/tenants">返回租户列表</a>
+{% endblock %}
+
 {% block content %}
-<section class="section-head">
-  <div>
-    <div class="eyebrow">Tenant Onboarding</div>
-    <h2>添加租户</h2>
-    <div class="section-sub">填写 OCI API 凭据后，系统会把私钥保存到当前项目的租户目录。</div>
-  </div>
-</section>
 
 <section class="panel" style="max-width:760px;">
   <form method="post" enctype="multipart/form-data">

@@ -1,21 +1,13 @@
 {% extends "base.html" %}
 
 {% block title %}设置 | OCI 管理器{% endblock %}
-{% block hero_title %}设置{% endblock %}
-{% block hero_text %}运行模式、通知和环境参数。{% endblock %}
+{% block page_title %}设置{% endblock %}
+{% block page_desc %}运行模式、通知和环境参数。{% endblock %}
 
 {% block content %}
-<section class="grid grid-4" style="margin-bottom:12px;">
-  <a class="panel" href="/system"><div class="eyebrow">系统</div><h3>系统状态</h3></a>
-  <a class="panel" href="/backup"><div class="eyebrow">备份</div><h3>备份恢复</h3></a>
-  <a class="panel" href="/checks"><div class="eyebrow">巡检</div><h3>API 巡检</h3></a>
-  <a class="panel" href="/cost"><div class="eyebrow">额度</div><h3>免费额度</h3></a>
-</section>
-
 <section class="table-card">
   <div class="section-head">
     <div>
-      <div class="eyebrow">Runtime</div>
       <h2>环境变量</h2>
     </div>
   </div>
@@ -37,7 +29,6 @@
 <section class="panel" style="margin-top:20px;">
   <div class="section-head">
     <div>
-      <div class="eyebrow">运行模式</div>
       <h2>离线与通知</h2>
     </div>
   </div>

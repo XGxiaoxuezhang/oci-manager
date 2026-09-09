@@ -1,22 +1,21 @@
 {% extends "base.html" %}
 
 {% block title %}实例 | OCI 管理器{% endblock %}
+{% block page_title %}实例{% endblock %}
+{% block page_desc %}租户：{{ tenant_name }}{% endblock %}
+{% block page_actions %}
+<a class="btn btn-ghost" href="?refresh=1" title="绕过缓存强制重新拉取">刷新</a>
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/security-lists">安全组</a>
+<a class="btn btn-secondary" href="/instances">实例总览</a>
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/instances/export">导出 CSV</a>
+<button class="btn btn-primary" type="button" data-dialog-open="create-instance" {{ 'disabled' if launch_error }}>
+  <svg class="icon icon-sm" aria-hidden="true"><use href="#i-plus"></use></svg>创建实例
+</button>
+{% endblock %}
+
 {% block content %}
 {% set has_active_tasks = tasks | selectattr('status', 'in', ['queued', 'running']) | list | length > 0 %}
 {% if has_active_tasks %}<div data-auto-refresh="15"></div>{% endif %}
-
-<section class="section-head">
-  <div>
-    <div class="eyebrow">Compute</div>
-    <h2>实例</h2>
-    <div class="section-sub">租户：{{ tenant_name }}</div>
-  </div>
-  <div class="actions">
-    <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/security-lists">安全</a>
-    <a class="btn btn-secondary" href="/instances">实例总览</a>
-    <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/instances/export">导出 CSV</a>
-  </div>
-</section>
 
 {% if load_error %}
 <div class="flash error">实例列表读取失败：{{ load_error }}</div>
@@ -27,26 +26,39 @@
 
 <section class="metrics">
   <div class="metric"><div class="label">实例数量</div><div class="value">{{ instances|length }}</div></div>
-  <div class="metric"><div class="label">运行中</div><div class="value">{{ instances|selectattr('state', 'equalto', 'RUNNING')|list|length }}</div></div>
+  <div class="metric"><div class="label">运行中</div><div class="value">{{ instances|selectattr('state_kind', 'equalto', 'running')|list|length }}</div></div>
+  <div class="metric"><div class="label">已停止</div><div class="value">{{ instances|selectattr('state_kind', 'equalto', 'stopped')|list|length }}</div></div>
+  <div class="metric"><div class="label">过渡中</div><div class="value">{{ instances|selectattr('state_kind', 'equalto', 'pending')|list|length }}</div></div>
   <div class="metric"><div class="label">任务</div><div class="value">{{ tasks|length }}</div></div>
 </section>
 
 <section class="table-card">
-  <div class="section-head">
-    <div>
-      <div class="eyebrow">List</div>
-      <h2>实例列表</h2>
-    </div>
-  </div>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>名称</th><th>规格</th><th>状态</th><th>可用域</th><th>公网 IP</th><th>私网 IP</th><th>IPv6</th><th>创建时间</th><th>操作</th></tr></thead>
+      <thead><tr><th>名称</th><th>规格</th><th>状态</th><th>CPU 24h</th><th>可用域</th><th>公网 IP</th><th>私网 IP</th><th>IPv6</th><th>创建时间</th><th>操作</th></tr></thead>
       <tbody>
         {% for instance in instances %}
         <tr>
-          <td>{{ instance.name }}</td>
+          <td>
+            {{ instance.name }}
+            {% if instance.id in scheduled_instance_ids %}<span class="badge badge-mid" title="已配置定时启停计划">定时</span>{% endif %}
+          </td>
           <td><span class="small">{{ instance.shape }}</span></td>
-          <td><span class="badge {{ 'badge-good' if instance.state == 'RUNNING' else 'badge-bad' if instance.state in ['TERMINATED', 'STOPPING'] else 'badge-mid' }}">{{ instance.state }}</span></td>
+          <td><span class="badge {{ 'badge-good' if instance.state_kind == 'running' else 'badge-bad' if instance.state_kind == 'terminated' else 'badge-warn' if instance.state_kind == 'pending' else 'badge-mid' }}">{{ instance.state }}</span></td>
+          <td>
+            {% if instance.cpu_points %}
+            {% set n = instance.cpu_points|length %}
+            <svg width="72" height="20" viewBox="0 0 72 20" preserveAspectRatio="none" role="img"
+                 style="vertical-align:middle;display:block;"
+                 title="CPU 均值 {{ instance.cpu_avg }}% / 峰值 {{ instance.cpu_peak }}%；内存 {{ instance.mem_avg if instance.mem_avg is not none else '-' }}%；网络 ↓{{ instance.net_in_mb or 0 }} ↑{{ instance.net_out_mb or 0 }} MB/s">
+              <polyline fill="none" stroke="#1b6ac9" stroke-width="1.2"
+                points="{% for p in instance.cpu_points %}{% if n > 1 %}{{ ((loop.index0 * 72) / (n - 1))|round(1) }}{% else %}0{% endif %},{{ (20 - (p / 100) * 19)|round(1) }} {% endfor %}" />
+            </svg>
+            <span class="small muted">{{ instance.cpu_avg if instance.cpu_avg is not none else '-' }}%</span>
+            {% else %}
+            <span class="small muted" title="无监控数据（实例未开机或未装 compute-agent）">-</span>
+            {% endif %}
+          </td>
           <td>{{ instance.availability_domain }}</td>
           <td>
             {{ instance.public_ip }}
@@ -65,35 +77,183 @@
           <td>{{ instance.created }}</td>
           <td>
             <div class="actions">
-              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/start"><button class="btn btn-ghost" type="submit">启动</button></form>
-              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/softstop" onsubmit="return confirm('确认停止实例 {{ instance.name }} 吗？');"><button class="btn btn-ghost" type="submit">软停</button></form>
-              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/reset" onsubmit="return confirm('确认重启实例 {{ instance.name }} 吗？');"><button class="btn btn-ghost" type="submit">重启</button></form>
-              <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/instance/{{ instance.id }}/change_ip">换 IP</a>
-              <a class="btn btn-warning" href="/tenant/{{ tenant_name }}/instance/{{ instance.id }}/rescue">控制台 / VNC</a>
-              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/{{ instance.id }}/terminate" data-confirm-value="{{ instance.name }}" data-confirm-label="实例名称">
-                <input type="hidden" name="confirm_name" value="">
-                <label class="small"><input type="checkbox" name="preserve_boot_volume" checked> 保留盘</label>
-                <button class="btn btn-danger" type="submit">终止</button>
-              </form>
+              {% if 'start' in instance.actions %}
+              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/start"><button class="btn btn-secondary" type="submit">启动</button></form>
+              {% elif 'softstop' in instance.actions %}
+              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/softstop" onsubmit="return confirm('确认停止实例 {{ instance.name }} 吗？');"><button class="btn btn-secondary" type="submit">停止</button></form>
+              {% elif instance.state_kind == 'pending' %}
+              <span class="small">处理中…</span>
+              {% endif %}
+
+              <details class="menu">
+                <summary class="btn btn-ghost" title="更多操作">···</summary>
+                <div class="menu-panel">
+                  <div class="menu-label">电源</div>
+                  {% if 'start' in instance.actions %}
+                  <form method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/start"><button class="menu-item" type="submit">启动</button></form>
+                  {% endif %}
+                  {% if 'softstop' in instance.actions %}
+                  <form method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/softstop" onsubmit="return confirm('确认停止实例 {{ instance.name }} 吗？');"><button class="menu-item" type="submit">软停</button></form>
+                  {% endif %}
+                  {% if 'softreset' in instance.actions %}
+                  <form method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/softreset" onsubmit="return confirm('确认软重启实例 {{ instance.name }} 吗？');"><button class="menu-item" type="submit">软重启</button></form>
+                  {% endif %}
+                  {% if 'reset' in instance.actions %}
+                  <form method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/reset" onsubmit="return confirm('确认强制重启实例 {{ instance.name }} 吗？');"><button class="menu-item" type="submit">强制重启</button></form>
+                  {% endif %}
+
+                  {% if instance.state_kind != 'terminated' %}
+                  <div class="menu-sep"></div>
+                  <div class="menu-label">配置</div>
+                  <a class="menu-item" href="/tenant/{{ tenant_name }}/instance/{{ instance.id }}/edit">编辑规格</a>
+                  <a class="menu-item" href="/tenant/{{ tenant_name }}/instance/{{ instance.id }}/change_ip">更换公网 IP</a>
+                  <a class="menu-item" href="/tenant/{{ tenant_name }}/instance/{{ instance.id }}/rescue">VNC 控制台</a>
+                  <form method="post" action="/tenant/{{ tenant_name }}/console-history/capture/{{ instance.id }}">
+                    <button class="menu-item" type="submit" title="抓取控制台输出，SSH 进不去时看启动日志">抓取启动日志</button>
+                  </form>
+                  {% endif %}
+
+                  {% if instance.can_terminate %}
+                  <div class="menu-sep"></div>
+                  <div class="menu-label">危险</div>
+                  <form method="post" action="/tenant/{{ tenant_name }}/instance/{{ instance.id }}/terminate" data-confirm-value="{{ instance.name }}" data-confirm-label="实例名称">
+                    <input type="hidden" name="confirm_name" value="">
+                    <label class="menu-item menu-check"><input type="checkbox" name="preserve_boot_volume" checked> 保留启动盘</label>
+                    <button class="menu-item danger" type="submit">终止实例</button>
+                  </form>
+                  {% endif %}
+                </div>
+              </details>
             </div>
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="9"><div class="empty">{{ '实例列表暂未加载成功。' if load_error else '当前没有实例。' }}</div></td></tr>
+        <tr><td colspan="10"><div class="empty">{{ '实例列表暂未加载成功。' if load_error else '当前没有实例。' }}</div></td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </section>
 
-<section class="grid grid-2" style="margin-top:12px;">
-  <article class="panel">
-    <div class="section-head">
-      <div>
-        <div class="eyebrow">Create</div>
-        <h2>创建实例</h2>
-      </div>
+<section class="table-card" style="margin-top:14px;" id="schedules">
+  <div class="section-head">
+    <div>
+      <h2>定时计划</h2>
+      <div class="section-sub small">到点自动启动/停止实例；执行结果通过通知渠道推送。时间用本机时区。</div>
     </div>
+  </div>
+  <form method="post" action="/tenant/{{ tenant_name }}/schedules/add" class="field-row" style="padding:12px 14px;">
+    <label class="field" style="min-width:220px;">
+      <span>实例</span>
+      <select name="instance_id" required>
+        {% for instance in instances %}
+        {% if instance.state_kind != 'terminated' %}
+        <option value="{{ instance.id }}">{{ instance.name }}（{{ instance.state }}）</option>
+        {% endif %}
+        {% else %}
+        <option value="">没有可用实例</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="field">
+      <span>动作</span>
+      <select name="action"><option value="stop">停止</option><option value="start">启动</option></select>
+    </label>
+    <label class="field">
+      <span>时间</span>
+      <input type="time" name="time" required value="03:00">
+    </label>
+    <label class="field">
+      <span>重复</span>
+      <select name="days">
+        <option value="all">每天</option>
+        <option value="1,2,3,4,5">工作日</option>
+        <option value="6,7">周末</option>
+      </select>
+    </label>
+    <button class="btn btn-secondary" type="submit" {{ 'disabled' if not instances }}>添加计划</button>
+  </form>
+  {% if schedules %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>实例</th><th>动作</th><th>时间</th><th>重复</th><th>状态</th><th>上次执行</th><th></th></tr></thead>
+      <tbody>
+        {% for s in schedules %}
+        <tr>
+          <td>{{ s.instance_name }}</td>
+          <td>{{ '启动' if s.action == 'start' else '停止' }}</td>
+          <td>{{ s.time_hhmm }}</td>
+          <td>{{ s.days_label }}</td>
+          <td><span class="badge {{ 'badge-good' if s.enabled else 'badge-mid' }}">{{ '启用' if s.enabled else '停用' }}</span></td>
+          <td class="muted">{{ s.last_run_date or '-' }}</td>
+          <td class="row-actions">
+            <form class="inline" method="post" action="/tenant/{{ tenant_name }}/schedules/{{ s.id }}/toggle">
+              <button class="btn btn-ghost" type="submit">{{ '停用' if s.enabled else '启用' }}</button>
+            </form>
+            <form class="inline" method="post" action="/tenant/{{ tenant_name }}/schedules/{{ s.id }}/delete" onsubmit="return confirm('确认删除该定时计划吗？');">
+              <button class="btn btn-ghost" type="submit">删除</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty">没有定时计划。</div>
+  {% endif %}
+</section>
+
+<section class="table-card" style="margin-top:14px;">
+  <div class="section-head">
+    <div>
+      <h2>创建任务</h2>
+      <div class="section-sub small">持续重试创建直到成功（抢 Always Free 实例场景）；点「新建任务」打开创建对话框并填最大尝试/间隔秒。</div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-secondary" type="button" data-dialog-open="create-instance">新建任务</button>
+      <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instances/tasks/clear" onsubmit="return confirm('确认清理当前租户已结束任务吗？');">
+        <button class="btn btn-ghost" type="submit">清理已结束</button>
+      </form>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>ID</th><th>规格</th><th>状态</th><th>尝试</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for task in tasks %}
+        <tr>
+          <td>{{ task.id }}</td>
+          <td>{{ task.preset }}</td>
+          <td><span class="badge {{ 'badge-good' if task.status == 'success' else 'badge-bad' if task.status in ['failed', 'cancelled', 'interrupted'] else 'badge-mid' }}">{{ task.status }}</span></td>
+          <td>{{ task.current_attempt }}</td>
+          <td>{% if task.status in ['queued', 'running'] %}<form class="inline" method="post" action="/tenant/{{ tenant_name }}/instances/task/{{ task.id }}/cancel" onsubmit="return confirm('确认取消任务 {{ task.id }} 吗？');"><button class="btn btn-danger" type="submit">取消</button></form>{% else %}-{% endif %}</td>
+        </tr>
+        {% if task.logs %}
+        <tr>
+          <td colspan="5" style="padding-top:0;">
+            <details class="fold">
+              <summary>任务日志 · {{ task.logs|length }} 行</summary>
+              <pre>{% for line in task.logs %}{{ line }}
+{% endfor %}</pre>
+            </details>
+          </td>
+        </tr>
+        {% endif %}
+        {% else %}
+        <tr><td colspan="5"><div class="empty">没有任务。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<dialog id="create-instance" class="modal">
+  <div class="modal-head">
+    <h2>创建实例</h2>
+    <button class="btn btn-ghost" type="button" data-dialog-close>关闭</button>
+  </div>
+  <div class="modal-body">
     <form method="post" action="/tenant/{{ tenant_name }}/instances/create">
       <div class="grid grid-2">
         <div class="field"><label>规格</label><select name="preset">{% for key, item in launch_presets.items() %}<option value="{{ key }}">{{ item.label }} / {{ item.shape }}</option>{% endfor %}</select></div>
@@ -110,54 +270,12 @@
       <div class="field"><label>镜像</label><select name="image_id" required>{% for image in images %}<option value="{{ image.id }}">{{ image.label }} / {{ image.display_name }}</option>{% else %}<option value="">未读取到镜像</option>{% endfor %}</select></div>
       <div class="field"><label>SSH 公钥</label><textarea name="ssh_public_key" placeholder="ssh-rsa AAAA..."></textarea></div>
       <div class="grid grid-2">
-        <div class="field"><label>最大尝试</label><input name="attempts" type="number" min="1" max="9999" value="60"></div>
-        <div class="field"><label>间隔秒</label><input name="interval_seconds" type="number" min="5" max="300" value="20"></div>
+        <div class="field"><label>最大尝试 <span class="small muted">（任务最多循环创建多少次）</span></label><input name="attempts" type="number" min="1" max="9999" value="60"></div>
+        <div class="field"><label>间隔秒 <span class="small muted">（每次尝试间隔）</span></label><input name="interval_seconds" type="number" min="5" max="300" value="20"></div>
       </div>
       <div class="field"><label><input type="checkbox" name="assign_public_ip" checked> 分配公网 IP</label></div>
       <button class="btn btn-primary" type="submit" {{ 'disabled' if launch_error }}>提交任务</button>
     </form>
-  </article>
-
-  <article class="table-card">
-    <div class="section-head">
-      <div>
-        <div class="eyebrow">Tasks</div>
-        <h2>创建任务</h2>
-      </div>
-      <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instances/tasks/clear" onsubmit="return confirm('确认清理当前租户已结束任务吗？');">
-        <button class="btn btn-secondary" type="submit">清理已结束</button>
-      </form>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>ID</th><th>规格</th><th>状态</th><th>尝试</th><th>操作</th></tr></thead>
-        <tbody>
-          {% for task in tasks %}
-          <tr>
-            <td>{{ task.id }}</td>
-            <td>{{ task.preset }}</td>
-            <td><span class="badge {{ 'badge-good' if task.status == 'success' else 'badge-bad' if task.status in ['failed', 'cancelled', 'interrupted'] else 'badge-mid' }}">{{ task.status }}</span></td>
-            <td>{{ task.current_attempt }}</td>
-            <td>{% if task.status in ['queued', 'running'] %}<form class="inline" method="post" action="/tenant/{{ tenant_name }}/instances/task/{{ task.id }}/cancel" onsubmit="return confirm('确认取消任务 {{ task.id }} 吗？');"><button class="btn btn-danger" type="submit">取消</button></form>{% else %}-{% endif %}</td>
-          </tr>
-          {% else %}
-          <tr><td colspan="5"><div class="empty">没有任务。</div></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </article>
-</section>
-
-<section class="stack" style="margin-top:12px;">
-  {% for task in tasks %}
-  {% if task.logs %}
-  <article class="panel">
-    <div class="section-head"><div><div class="eyebrow">Log</div><h3>{{ task.id }}</h3></div></div>
-    <pre>{% for line in task.logs %}{{ line }}
-{% endfor %}</pre>
-  </article>
-  {% endif %}
-  {% endfor %}
-</section>
+  </div>
+</dialog>
 {% endblock %}

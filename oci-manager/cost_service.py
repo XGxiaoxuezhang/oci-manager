@@ -3,8 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from database_service import get_database_client
+from notify import notify
 from object_storage_service import storage_context
 from oci_helpers import get_block_client, get_compute_client, get_identity_client, get_network_client, list_all
+from compartment_scope import compartment_of
 
 ALWAYS_FREE_SHAPES = {"VM.Standard.E2.1.Micro", "VM.Standard.A1.Flex"}
 
@@ -54,7 +56,7 @@ def free_tier_context(tenant_cfg: dict[str, Any]) -> dict[str, Any]:
     block = get_block_client(tenant_cfg)
 
     for ad in list_all(identity.list_availability_domains, compartment_id=tenant_cfg["tenant_id"]):
-        for instance in list_all(compute.list_instances, compartment_id=tenant_cfg["tenant_id"], availability_domain=ad.name):
+        for instance in list_all(compute.list_instances, compartment_id=compartment_of(tenant_cfg), availability_domain=ad.name):
             if getattr(instance, "lifecycle_state", "") == "TERMINATED":
                 continue
             shape = getattr(instance, "shape", "")
@@ -66,10 +68,10 @@ def free_tier_context(tenant_cfg: dict[str, Any]) -> dict[str, Any]:
                 usage["amd_micro_count"] += 1
             else:
                 risks.append({"level": "warn", "text": f"实例 {getattr(instance, 'display_name', instance.id)} 使用 {shape}，不是常见 Always Free 规格。"})
-        for volume in list_all(block.list_boot_volumes, compartment_id=tenant_cfg["tenant_id"], availability_domain=ad.name):
+        for volume in list_all(block.list_boot_volumes, compartment_id=compartment_of(tenant_cfg), availability_domain=ad.name):
             if getattr(volume, "lifecycle_state", "") != "TERMINATED":
                 usage["block_volume_gbs"] += float(getattr(volume, "size_in_gbs", 0) or 0)
-        for volume in list_all(block.list_volumes, compartment_id=tenant_cfg["tenant_id"], availability_domain=ad.name):
+        for volume in list_all(block.list_volumes, compartment_id=compartment_of(tenant_cfg), availability_domain=ad.name):
             if getattr(volume, "lifecycle_state", "") != "TERMINATED":
                 usage["block_volume_gbs"] += float(getattr(volume, "size_in_gbs", 0) or 0)
 
@@ -81,7 +83,7 @@ def free_tier_context(tenant_cfg: dict[str, Any]) -> dict[str, Any]:
 
     try:
         db_client = get_database_client(tenant_cfg)
-        for db in list_all(db_client.list_autonomous_databases, compartment_id=tenant_cfg["tenant_id"]):
+        for db in list_all(db_client.list_autonomous_databases, compartment_id=compartment_of(tenant_cfg)):
             if getattr(db, "lifecycle_state", "") != "TERMINATED" and bool(getattr(db, "is_free_tier", False)):
                 usage["adb_count"] += 1
             elif getattr(db, "lifecycle_state", "") != "TERMINATED":
@@ -101,3 +103,25 @@ def free_tier_context(tenant_cfg: dict[str, Any]) -> dict[str, Any]:
         if item["status"] == "over":
             risks.append({"level": "bad", "text": f"{item['label']} 估算已超过常见 Always Free 额度。"})
     return {"free_items": items, "risks": risks}
+
+
+def check_budget_alerts(tenant_name: str, tenant_cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    """基于 Always Free 常见额度的预算告警：越限即触发通知，返回触发项列表。"""
+    ctx = free_tier_context(tenant_cfg)
+    return fire_budget_alerts(tenant_name, ctx)
+
+
+def fire_budget_alerts(tenant_name: str, ctx: dict[str, Any]) -> list[dict[str, Any]]:
+    """对已算好的额度上下文做告警判断，避免重复调用 OCI API。"""
+    alerts: list[dict[str, Any]] = []
+    for item in ctx.get("free_items", []):
+        if item["status"] == "over":
+            alerts.append(item)
+    if alerts:
+        lines = "、".join(f"{a['label']} {a['used']}/{a['limit']}{a['unit']}" for a in alerts)
+        notify(
+            "OCI 免费额度告警",
+            f"租户 {tenant_name} 有资源估算已超过常见 Always Free 额度：{lines}",
+            {"tenant_name": tenant_name, "alerts": alerts},
+        )
+    return alerts

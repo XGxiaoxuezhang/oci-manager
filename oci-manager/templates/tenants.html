@@ -1,27 +1,16 @@
 ﻿{% extends "base.html" %}
 
 {% block title %}租户 | OCI 管理器{% endblock %}
-{% block hero_title %}租户{% endblock %}
-{% block hero_text %}管理本地保存的 OCI 租户配置和常用入口。{% endblock %}
+{% block page_title %}租户{% endblock %}
+{% block page_desc %}共 {{ stats.tenant_count }} 个租户，覆盖 {{ stats.region_count }} 个区域。{% endblock %}
+{% block page_actions %}
+<a class="btn btn-secondary" href="/instances">实例总览</a>
+<a class="btn btn-primary" href="/tenant/add">
+  <svg class="icon icon-sm" aria-hidden="true"><use href="#i-plus"></use></svg>添加租户
+</a>
+{% endblock %}
+
 {% block content %}
-<section class="metrics">
-  <div class="metric"><div class="label">租户数量</div><div class="value">{{ stats.tenant_count }}</div></div>
-  <div class="metric"><div class="label">区域数量</div><div class="value">{{ stats.region_count }}</div></div>
-  <div class="metric"><div class="label">最近新增</div><div class="value" style="font-size:1.1rem">{{ stats.latest_created or '-' }}</div></div>
-</section>
-
-<section class="section-head">
-  <div>
-    <div class="eyebrow">租户面板</div>
-    <h2>租户列表</h2>
-    <div class="section-sub">租户配置、区域和常用入口。</div>
-  </div>
-  <div class="actions">
-    <a class="btn btn-secondary" href="/instances">实例总览</a>
-    <a class="btn btn-primary" href="/tenant/add">添加租户</a>
-  </div>
-</section>
-
 <section class="tenant-list">
   {% for tenant in tenants %}
   <article class="tenant-card">

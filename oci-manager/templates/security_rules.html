@@ -1,15 +1,13 @@
 {% extends "base.html" %}
 
 {% block title %}安全规则 | OCI 管理器{% endblock %}
+{% block page_title %}{{ security_list.name }}{% endblock %}
+{% block page_desc %}租户：{{ tenant_name }}{% endblock %}
+{% block page_actions %}
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/security-lists">返回列表</a>
+{% endblock %}
+
 {% block content %}
-<section class="section-head">
-  <div>
-    <div class="eyebrow">Security Rules</div>
-    <h2>{{ security_list.name }}</h2>
-    <div class="section-sub">租户：{{ tenant_name }}</div>
-  </div>
-  <a class="btn btn-ghost" href="/tenant/{{ tenant_name }}/security-lists">返回</a>
-</section>
 
 {% if load_error %}
 <div class="flash error">安全规则读取失败：{{ load_error }}</div>

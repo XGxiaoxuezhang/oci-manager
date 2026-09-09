@@ -119,9 +119,9 @@ def email_send_test(tenant_name: str):
         flash("发件人邮箱和收件人邮箱不能为空。", "error")
         return redirect(url_for("email.email_home", tenant_name=tenant_name))
     try:
-        result = run_with_timeout(
-            15,
-            send_test_email,
+        # 发邮件是非幂等写操作，不走 run_with_timeout（超时只是放弃等待、线程仍在跑，
+        # 会让"看起来失败但已发出"的邮件被重试双发）；直接调用，靠 SDK timeout 兜底。
+        result = send_test_email(
             tenant_cfg,
             sender_email,
             to_email,

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}公网 IP | OCI 管理器{% endblock %}
+{% block page_title %}公网 IP{% endblock %}
+{% block page_desc %}租户：{{ tenant_name }} · 保留公网 IP 与孤儿 IP 回收{% endblock %}
+{% block page_actions %}
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/instances">返回实例</a>
+{% endblock %}
+
+{% block content %}
+
+{% if load_error %}
+<div class="flash error">公网 IP 读取失败：{{ load_error }}</div>
+{% endif %}
+
+{% if orphan_count %}
+<div class="flash warn">
+  有 {{ orphan_count }} 个保留公网 IP 没有挂在任何资源上。它们不单独计费，但会占用账号配额；
+  如果是换 IP 留下的，可以直接释放。
+</div>
+{% endif %}
+
+<section class="table-card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>IP</th><th>名称</th><th>状态</th><th>挂载对象</th><th>创建时间</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for item in public_ips %}
+        <tr>
+          <td>{{ item.ip_address }}</td>
+          <td>{{ item.display_name }}</td>
+          <td>
+            {% if item.attached %}
+            <span class="badge badge-good">已挂载</span>
+            {% else %}
+            <span class="badge badge-warn">未挂载</span>
+            {% endif %}
+          </td>
+          <td>{{ item.assigned_entity_type if item.attached else '—' }}</td>
+          <td>{{ item.created }}</td>
+          <td>
+            {% if item.attached %}
+            <span class="small">需先解绑</span>
+            {% else %}
+            <form class="inline" method="post" action="/tenant/{{ tenant_name }}/public-ips/release" onsubmit="return confirm('确认释放公网 IP {{ item.ip_address }} 吗？此操作不可撤销。');">
+              <input type="hidden" name="public_ip_id" value="{{ item.id }}">
+              <button class="btn btn-secondary" type="submit">释放</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6"><div class="empty">没有保留公网 IP。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

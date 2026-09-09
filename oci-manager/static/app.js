@@ -74,4 +74,80 @@
       window.location.reload();
     }, seconds * 1000);
   }
+
+  document.querySelectorAll("[data-dialog-open]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var dialog = document.getElementById(button.getAttribute("data-dialog-open"));
+      if (!dialog) {
+        return;
+      }
+      if (typeof dialog.showModal === "function") {
+        dialog.showModal();
+      } else {
+        dialog.setAttribute("open", "");
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-dialog-close]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var dialog = button.closest("dialog");
+      if (!dialog) {
+        return;
+      }
+      if (typeof dialog.close === "function") {
+        dialog.close();
+      } else {
+        dialog.removeAttribute("open");
+      }
+    });
+  });
+
+  document.querySelectorAll("dialog.modal").forEach(function (dialog) {
+    dialog.addEventListener("click", function (event) {
+      if (event.target === dialog && typeof dialog.close === "function") {
+        dialog.close();
+      }
+    });
+  });
+
+  var menus = Array.prototype.slice.call(document.querySelectorAll(".menu"));
+
+  function closeMenus(except) {
+    menus.forEach(function (menu) {
+      if (menu !== except && menu.hasAttribute("open")) {
+        menu.removeAttribute("open");
+      }
+    });
+  }
+
+  menus.forEach(function (menu) {
+    var panel = menu.querySelector(".menu-panel");
+    menu.addEventListener("toggle", function () {
+      if (!menu.hasAttribute("open") || !panel) {
+        return;
+      }
+      closeMenus(menu);
+      var rect = menu.getBoundingClientRect();
+      var width = panel.offsetWidth;
+      var height = panel.offsetHeight;
+      var left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+      var top = rect.bottom + 4;
+      if (top + height > window.innerHeight - 8) {
+        top = Math.max(8, rect.top - height - 4);
+      }
+      panel.style.position = "fixed";
+      panel.style.margin = "0";
+      panel.style.top = top + "px";
+      panel.style.left = left + "px";
+    });
+  });
+
+  document.addEventListener("click", function (event) {
+    if (!event.target.closest || !event.target.closest(".menu")) {
+      closeMenus(null);
+    }
+  });
+
+  window.addEventListener("scroll", function () { closeMenus(null); }, true);
 })();

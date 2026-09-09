@@ -21,6 +21,7 @@ PAGE_TEMPLATES = {
     "add_tenant": "add_tenant.html",
     "users": "users.html",
     "instances": "instances.html",
+    "instance_edit": "instance_edit.html",
     "change_ip": "change_ip.html",
     "rescue": "rescue.html",
     "novnc": "novnc.html",
@@ -34,8 +35,16 @@ PAGE_TEMPLATES = {
     "backup": "backup.html",
     "cost": "cost.html",
     "checks": "checks.html",
+    "idle": "idle.html",
     "security_lists": "security_lists.html",
     "security_rules": "security_rules.html",
+    "public_ips": "public_ips.html",
+    "cloud_audit": "cloud_audit.html",
+    "network": "network.html",
+    "nsg": "nsg.html",
+    "nsg_rules": "nsg_rules.html",
+    "volumes": "volumes.html",
+    "console_history": "console_history.html",
 }
 
 

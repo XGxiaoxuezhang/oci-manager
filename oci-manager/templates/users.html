@@ -1,18 +1,54 @@
 {% extends "base.html" %}
 
 {% block title %}用户 | OCI 管理器{% endblock %}
+{% block page_title %}用户{% endblock %}
+{% block page_desc %}租户：{{ tenant_name }}{% endblock %}
 {% block content %}
-<section class="section-head">
-  <div>
-    <div class="eyebrow">Identity</div>
-    <h2>用户管理</h2>
-    <div class="section-sub">租户：{{ tenant_name }}</div>
-  </div>
-</section>
 
 {% if load_error %}
 <div class="flash error">用户列表读取失败：{{ load_error }}</div>
 {% endif %}
+
+{% if summary %}
+<section class="metrics">
+  <div class="metric"><div class="label">用户总数</div><div class="value">{{ summary.user_count }}</div></div>
+  <div class="metric"><div class="label">已启用 MFA</div><div class="value">{{ summary.mfa_enabled_count }}</div></div>
+  <div class="metric"><div class="label">API 密钥总数</div><div class="value">{{ summary.api_key_total }}</div></div>
+  <div class="metric"><div class="label">指纹不匹配</div><div class="value">{{ summary.fingerprint_mismatch_count }}</div></div>
+</section>
+{% endif %}
+
+{% if findings %}
+<section class="table-card" style="margin-bottom:12px;">
+  <div class="section-head"><div><h2>IAM 风险发现</h2></div></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>级别</th><th>内容</th></tr></thead>
+      <tbody>
+        {% for finding in findings %}
+        <tr>
+          <td><span class="badge {{ 'badge-bad' if finding.level == 'bad' else ('badge-good' if finding.level == 'good' else 'badge-mid') }}">{{ finding.level }}</span></td>
+          <td>{{ finding.text }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<section class="panel">
+  <h3>轮换当前 API 密钥</h3>
+  <p class="section-sub">
+    为当前配置的用户生成新密钥对：先把公钥上传到 OCI，成功后才替换本地私钥，中途失败不会动本地文件。
+    旧密钥会保留在 OCI 作为回退，确认新密钥可用后在下方删除。
+    {% if local_fingerprint %}本地私钥反算指纹：<code>{{ local_fingerprint }}</code>{% endif %}
+  </p>
+  <form method="post" action="/tenant/{{ tenant_name }}/user/rotate-key" class="grid grid-3" onsubmit="return confirm('轮换后本平台会立刻改用新密钥，确定继续吗？');">
+    <div class="field"><label>输入 ROTATE 以确认</label><input name="confirm_text" placeholder="ROTATE" required></div>
+    <div style="align-self:end;"><button class="btn btn-primary" type="submit">轮换密钥</button></div>
+  </form>
+</section>
 
 <section class="panel">
   <h3>创建新用户</h3>
@@ -27,14 +63,21 @@
 <section class="table-card">
   <div class="table-wrap">
     <table>
-      <thead><tr><th>用户名</th><th>邮箱</th><th>MFA</th><th>TOTP</th><th>创建时间</th><th>操作</th></tr></thead>
+      <thead><tr><th>用户名</th><th>邮箱</th><th>MFA</th><th>API 密钥</th><th>指纹校验</th><th>创建时间</th><th>操作</th></tr></thead>
       <tbody>
         {% for user in users %}
         <tr>
-          <td>{{ user.name }}</td>
+          <td>{{ user.name }}{% if user.is_configured_user %} <span class="badge badge-mid">当前</span>{% endif %}</td>
           <td>{{ user.email }}</td>
           <td><span class="badge {{ 'badge-good' if user.mfa else 'badge-bad' }}">{{ '已启用' if user.mfa else '未启用' }}</span></td>
-          <td>{{ user.totp_count }}</td>
+          <td>{{ user.api_key_count }}</td>
+          <td>
+            {% if user.fingerprint_mismatch %}
+            <span class="badge badge-bad">不匹配</span>
+            {% else %}
+            <span class="badge badge-good">正常</span>
+            {% endif %}
+          </td>
           <td>{{ user.created }}</td>
           <td>
             <form class="inline" method="post" action="/tenant/{{ tenant_name }}/user/reset_mfa/{{ user.id }}" onsubmit="return confirm('确定重置该用户的 MFA 吗？');">
@@ -43,7 +86,39 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="6"><div class="empty">当前租户没有用户。</div></td></tr>
+        <tr><td colspan="7"><div class="empty">当前租户没有用户。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="table-card" style="margin-top:12px;">
+  <div class="section-head"><div><h2>API 密钥</h2><div class="section-sub">正在使用的那把不能删除，需要先轮换。</div></div></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>用户</th><th>指纹</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for user in users %}
+          {% for key in user.api_keys %}
+          <tr>
+            <td>{{ user.name }}</td>
+            <td><code>{{ key.fingerprint }}</code>{% if key.fingerprint == user.configured_fingerprint %} <span class="badge badge-mid">使用中</span>{% endif %}</td>
+            <td>{{ key.state }}</td>
+            <td>{{ key.created }}</td>
+            <td>
+              {% if key.fingerprint == user.configured_fingerprint %}
+              <span class="small">使用中</span>
+              {% else %}
+              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/user/{{ user.id }}/delete-key/{{ key.fingerprint }}" onsubmit="return confirm('确定删除指纹 {{ key.fingerprint }} 的 API Key 吗？此操作不可撤销。');">
+                <button class="btn btn-danger" type="submit">删除</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+        <tr><td colspan="5"><div class="empty">没有读取到 API 密钥。</div></td></tr>
         {% endfor %}
       </tbody>
     </table>

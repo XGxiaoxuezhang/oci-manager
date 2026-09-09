@@ -1,6 +1,14 @@
 {% extends "base.html" %}
 
 {% block title %}邮件 | OCI 管理器{% endblock %}
+{% block page_title %}邮件{% endblock %}
+{% block page_desc %}邮件域名、DKIM 与发件人 · 租户 {{ tenant_name }}{% endblock %}
+{% block page_actions %}
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/email/export?type=senders">导出发件人</a>
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/email/export?type=domains">导出域名</a>
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/email/export?type=dkims">导出 DKIM</a>
+{% endblock %}
+
 {% block content %}
 <section class="metrics">
   <div class="metric"><div class="label">邮件域名</div><div class="value">{{ email_stats.domain_count }}</div></div>
@@ -16,7 +24,6 @@
   <article class="panel">
     <div class="section-head">
       <div>
-        <div class="eyebrow">端点</div>
         <h2>邮件提交配置</h2>
       </div>
     </div>
@@ -30,13 +37,7 @@
   <article class="panel">
     <div class="section-head">
       <div>
-        <div class="eyebrow">说明</div>
         <h2>发信检查</h2>
-      </div>
-      <div class="actions">
-        <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/email/export?type=senders">导出发件人</a>
-        <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/email/export?type=domains">导出域名</a>
-        <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/email/export?type=dkims">导出 DKIM</a>
       </div>
     </div>
     <div class="stack">
@@ -51,7 +52,6 @@
   <article class="panel">
     <div class="section-head">
       <div>
-        <div class="eyebrow">域名</div>
         <h2>添加邮件域名</h2>
       </div>
     </div>
@@ -65,7 +65,6 @@
   <article class="panel">
     <div class="section-head">
       <div>
-        <div class="eyebrow">发件人</div>
         <h2>添加发件人</h2>
         <div class="section-sub">先在域名里完成 DNS 配置，再把允许发信的邮箱地址加进来。</div>
       </div>
@@ -84,7 +83,6 @@
   <article class="panel">
     <div class="section-head">
       <div>
-        <div class="eyebrow">发信测试</div>
         <h2>发送测试邮件</h2>
         <div class="section-sub">验证域名和发件人状态。</div>
       </div>
@@ -125,7 +123,6 @@
 <section class="table-card" style="margin-top:20px;">
   <div class="section-head">
     <div>
-      <div class="eyebrow">域名</div>
       <h2>邮件域名列表</h2>
       <div class="section-sub">当前租户已有邮件域名。</div>
     </div>
@@ -153,7 +150,6 @@
 <section class="table-card" style="margin-top:20px;">
   <div class="section-head">
     <div>
-      <div class="eyebrow">DKIM</div>
       <h2>DKIM 记录</h2>
     </div>
   </div>
@@ -181,7 +177,6 @@
 <section class="table-card" style="margin-top:20px;">
   <div class="section-head">
     <div>
-      <div class="eyebrow">发件人</div>
       <h2>Approved Sender 列表</h2>
     </div>
   </div>

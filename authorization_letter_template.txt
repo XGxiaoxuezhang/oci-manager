@@ -1,0 +1,24 @@
+Subject: Authorization to create new Identity Domain Administrator – [Cloud Account / Order Number]
+
+To Oracle Support,
+
+I authorize Oracle Support to create the following user as Identity Domain Administrator or Order Activator on my cloud account:
+
+Name: [FIRST_NAME] [LAST_NAME]
+Email: [NEW_ADMIN_EMAIL]
+Role: Identity Domain Administrator / Order Activator
+SR#: [SR_NUMBER]
+Cloud Account or Order Number or Subscription ID: [CLOUD_ACCOUNT_OR_ORDER_NUMBER]
+Service Names: Oracle Cloud Infrastructure (IaaS and PaaS)
+
+Thank you.
+
+Best regards,
+[FIRST_NAME] [LAST_NAME]
+
+
+----------- 使用说明 (不要随附件发送，仅作参考) -----------
+1. 用你的发件邮箱（[YOUR_EMAIL]）写一封新邮件，收件人填上面的 [NEW_ADMIN_EMAIL]。
+2. 邮件正文用上方 "To Oracle Support ..." 那段英文（把 [] 占位符替换成真实信息）。
+3. 把这封邮件（或它的截图/导出 .eml）作为附件，回贴/上传到你那个 SR 上。
+4. 姓名务必: 一个名 + 一个姓，仅拉丁字母 (a-z A-Z)，不能有中文、声调、空格以外的符号。

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}资源闲置检测 | OCI 管理器{% endblock %}
+{% block page_title %}资源闲置检测{% endblock %}
+{% block page_desc %}停机未删实例、未挂载引导卷、空对象存储桶，帮你回收资源、避免浪费额度。{% endblock %}
+
+{% block content %}
+<section class="section-head">
+  <div>
+    <h2>闲置资源</h2>
+    <div class="section-sub">默认读取第一个租户，可切换其他租户。</div>
+  </div>
+  <form method="get" action="/checks/idle" class="actions">
+    <select class="tenant-switch" name="tenant">
+      {% for name in tenant_names %}
+      <option value="{{ name }}" {{ 'selected' if selected_tenant == name }}>{{ name }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-secondary" type="submit">应用</button>
+  </form>
+</section>
+
+{% if load_error %}
+<div class="flash error">闲置资源读取失败：{{ load_error }}</div>
+{% endif %}
+
+{% if idle %}
+<section class="metrics">
+  <div class="metric"><div class="label">停机实例</div><div class="value">{{ idle.instances|length }}</div></div>
+  <div class="metric"><div class="label">未挂载引导卷</div><div class="value">{{ idle.boot_volumes|length }}</div></div>
+  <div class="metric"><div class="label">空存储桶</div><div class="value">{{ idle.buckets|length }}</div></div>
+</section>
+
+<section class="table-card">
+  <div class="section-head"><div><h2>闲置资源清单</h2></div></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>类型</th><th>名称</th><th>详情</th><th>创建时间</th></tr></thead>
+      <tbody>
+        {% for item in idle.instances %}
+        <tr><td><span class="badge badge-mid">实例</span></td><td>{{ item.name }}</td><td>{{ item.detail }}</td><td>{{ item.created }}</td></tr>
+        {% endfor %}
+        {% for item in idle.boot_volumes %}
+        <tr><td><span class="badge badge-mid">引导卷</span></td><td>{{ item.name }}</td><td>{{ item.detail }}</td><td>{{ item.created }}</td></tr>
+        {% endfor %}
+        {% for item in idle.buckets %}
+        <tr><td><span class="badge badge-mid">存储桶</span></td><td>{{ item.name }}</td><td>{{ item.detail }}</td><td>{{ item.created }}</td></tr>
+        {% endfor %}
+        {% if idle.total == 0 %}
+        <tr><td colspan="4"><div class="empty">没有检测到闲置资源。</div></td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% else %}
+<div class="empty">请选择租户后查看闲置资源。</div>
+{% endif %}
+{% endblock %}

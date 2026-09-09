@@ -9,6 +9,7 @@ import oci
 
 from oci_helpers import build_config, client_kwargs, list_all
 from storage import fmt_dt
+from compartment_scope import compartment_of
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -63,7 +64,7 @@ def _sender_row(sender: Any) -> dict[str, Any]:
 
 def email_context(tenant_cfg: dict[str, Any]) -> dict[str, Any]:
     client = get_email_client(tenant_cfg)
-    compartment_id = tenant_cfg["tenant_id"]
+    compartment_id = compartment_of(tenant_cfg)
     configuration = client.get_email_configuration(compartment_id=compartment_id).data
     domains = list_all(client.list_email_domains, compartment_id=compartment_id)
     senders = list_all(client.list_senders, compartment_id=compartment_id)
@@ -107,7 +108,7 @@ def create_sender(tenant_cfg: dict[str, Any], email_address: str) -> dict[str, s
     client = get_email_client(tenant_cfg)
     response = client.create_sender(
         oci.email.models.CreateSenderDetails(
-            compartment_id=tenant_cfg["tenant_id"],
+            compartment_id=compartment_of(tenant_cfg),
             email_address=normalized_email,
         )
     )
@@ -124,7 +125,7 @@ def create_email_domain(tenant_cfg: dict[str, Any], domain_name: str, descriptio
         raise ValueError("域名格式不正确。")
     response = get_email_client(tenant_cfg).create_email_domain(
         oci.email.models.CreateEmailDomainDetails(
-            compartment_id=tenant_cfg["tenant_id"],
+            compartment_id=compartment_of(tenant_cfg),
             name=normalized,
             description=(description or "").strip() or None,
         )
@@ -156,7 +157,7 @@ def send_test_email(
     client = get_email_dp_client(tenant_cfg)
     details = oci.email_data_plane.models.SubmitEmailDetails(
         sender=oci.email_data_plane.models.Sender(
-            compartment_id=tenant_cfg["tenant_id"],
+            compartment_id=compartment_of(tenant_cfg),
             sender_address=oci.email_data_plane.models.EmailAddress(email=normalized_sender),
         ),
         recipients=oci.email_data_plane.models.Recipients(

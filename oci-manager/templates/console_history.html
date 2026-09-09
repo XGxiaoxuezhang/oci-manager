@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}启动日志 | OCI 管理器{% endblock %}
+{% block page_title %}启动日志{% endblock %}
+{% block page_desc %}抓取实例的控制台输出，SSH 进不去时看这里。{% endblock %}
+{% block page_actions %}
+<a class="btn btn-ghost" href="/tenant/{{ tenant_name }}/instances">返回实例</a>
+{% endblock %}
+
+{% block content %}
+{% if pending %}
+<div data-auto-refresh="8"></div>
+<div class="flash info">正在生成日志（当前状态：{{ state }}），页面稍后自动刷新…</div>
+{% endif %}
+
+{% if content %}
+<section class="panel" style="margin-bottom:14px;">
+  <div class="section-head">
+    <div>
+      <h2 style="font-size:15px;">日志内容（尾部 8000 字符）</h2>
+    </div>
+  </div>
+  <pre style="white-space:pre-wrap;font-family:var(--mono);font-size:12px;line-height:1.5;max-height:480px;overflow:auto;">{{ content }}</pre>
+</section>
+{% endif %}
+
+<section class="table-card">
+  <div class="section-head">
+    <div>
+      <h2 style="font-size:15px;">历史记录</h2>
+      <div class="section-sub small">每次抓取保留约 14 天（OCI 侧限制）。</div>
+    </div>
+  </div>
+  {% if rows %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>时间</th><th>实例 ID</th><th>状态</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td class="muted">{{ row.created }}</td>
+          <td class="small" title="{{ row.instance_id }}">{{ row.instance_id[:38] }}…</td>
+          <td>
+            {% if row.state == 'SUCCEEDED' %}<span class="badge badge-good">完成</span>
+            {% elif row.state == 'FAILED' %}<span class="badge badge-bad">失败</span>
+            {% else %}<span class="badge badge-mid">{{ row.state }}</span>{% endif %}
+          </td>
+          <td class="row-actions">
+            <a class="btn btn-ghost" href="?history_id={{ row.id }}">查看</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty">还没有抓取记录。到实例页的「···」菜单选「抓取启动日志」。</div>
+  {% endif %}
+</section>
+{% endblock %}

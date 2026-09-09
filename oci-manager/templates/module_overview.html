@@ -1,18 +1,10 @@
 {% extends "base.html" %}
 
 {% block title %}{{ module_title }} | OCI 管理器{% endblock %}
-{% block hero_title %}{{ module_title }}{% endblock %}
-{% block hero_text %}按租户进入对应功能。{% endblock %}
+{% block page_title %}{{ module_title }}{% endblock %}
+{% block page_desc %}选择租户后进入 {{ module_title }} 管理页。{% endblock %}
 
 {% block content %}
-<section class="section-head">
-  <div>
-    <div class="eyebrow">功能入口</div>
-    <h2>{{ module_title }}</h2>
-    <div class="section-sub">选择租户后进入 {{ module_title }} 管理页。</div>
-  </div>
-</section>
-
 <section class="tenant-list">
   {% for tenant in tenants %}
   <article class="tenant-card">

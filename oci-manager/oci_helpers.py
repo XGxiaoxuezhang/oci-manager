@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import os
 from pathlib import Path
@@ -7,18 +8,9 @@ from typing import Any
 
 import oci
 
+from compartment_scope import compartment_of
 from settings import OCI_CONNECT_TIMEOUT, OCI_READ_TIMEOUT, TENANT_DIR, clear_proxy_enabled, format_region
 from storage import fmt_dt, load_tenants, save_tenants
-
-
-def clear_broken_proxy_env() -> None:
-    if not clear_proxy_enabled():
-        return
-    for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
-        os.environ.pop(key, None)
-
-
-clear_broken_proxy_env()
 
 
 def _resolve_key_path(tenant_cfg: dict[str, Any]) -> str:
@@ -53,6 +45,25 @@ def list_all(func: Any, *args: Any, **kwargs: Any) -> list[Any]:
     return oci.pagination.list_call_get_all_results(func, *args, **kwargs).data
 
 
+def migrate_tenant_key_paths() -> int:
+    """启动时一次性迁移：把失效的 key_path 修正到 fallback 路径。
+
+    原先这段逻辑写在 find_tenant_config 里——一个"查询"函数带写副作用，
+    每个请求都可能触发，并发下会交错写盘。现在改成启动时集中跑一次，
+    读函数保持纯读。返回修正的租户数量。
+    """
+    tenants = load_tenants()
+    changed = 0
+    for tenant_name, cfg in tenants.items():
+        resolved = _resolve_key_path({**cfg, "_tenant_name": tenant_name})
+        if resolved and resolved != cfg.get("key_path"):
+            tenants[tenant_name]["key_path"] = resolved
+            changed += 1
+    if changed:
+        save_tenants(tenants)
+    return changed
+
+
 def find_tenant_config(tenant_name: str) -> dict[str, Any] | None:
     tenants = load_tenants()
     tenant_cfg = tenants.get(tenant_name)
@@ -62,8 +73,7 @@ def find_tenant_config(tenant_name: str) -> dict[str, Any] | None:
     tenant_cfg["_tenant_name"] = tenant_name
     resolved_key_path = _resolve_key_path(tenant_cfg)
     if resolved_key_path and resolved_key_path != tenant_cfg.get("key_path"):
-        tenants[tenant_name]["key_path"] = resolved_key_path
-        save_tenants(tenants)
+        # 只做内存修正，不回写磁盘；持久化迁移由启动时 migrate_tenant_key_paths() 统一负责
         tenant_cfg["key_path"] = resolved_key_path
     return tenant_cfg
 
@@ -153,6 +163,38 @@ def summarize_rule(direction: str, index: int, rule: Any) -> dict[str, Any]:
     }
 
 
+def fingerprint_from_private_pem(private_pem: bytes) -> str | None:
+    """从 PEM 私钥字节反算 OCI API key 的 fingerprint。"""
+    try:
+        from cryptography.hazmat.primitives import serialization
+    except Exception:
+        return None
+    try:
+        key = serialization.load_pem_private_key(private_pem, password=None)
+    except Exception:
+        return None
+    der = key.public_key().public_bytes(
+        serialization.Encoding.DER,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    digest = hashlib.md5(der).hexdigest()
+    return ":".join(digest[i : i + 2] for i in range(0, len(digest), 2))
+
+
+def calc_fingerprint_from_key(key_path: str) -> str | None:
+    """从 PEM 私钥文件反算 OCI API key 的 fingerprint。
+
+    注意：当前 oci-python-sdk（2.x）的 fingerprint 是 **MD5** over
+    SubjectPublicKeyInfo DER（16 字节，即 32 位 hex、16 组冒号分隔），
+    而不是标准的 SHA-1。以 `oci.config.PATTERNS["fingerprint"]` 的正则
+    `^([0-9a-f]{2}:){15}[0-9a-f]{2}$` 为准。
+    """
+    path = Path(key_path)
+    if not path.is_file():
+        return None
+    return fingerprint_from_private_pem(path.read_bytes())
+
+
 def build_dashboard_cards(tenants: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     return [
         {
@@ -207,7 +249,7 @@ def instance_boot_volume(tenant_cfg: dict[str, Any], instance: Any) -> tuple[Any
     attachments = list_all(
         compute_client.list_boot_volume_attachments,
         instance.availability_domain,
-        tenant_cfg["tenant_id"],
+        compartment_of(tenant_cfg),
         instance_id=instance.id,
     )
     if not attachments:
@@ -221,7 +263,7 @@ def instance_console_connections(tenant_cfg: dict[str, Any], instance_id: str) -
     compute_client = get_compute_client(tenant_cfg)
     connections = list_all(
         compute_client.list_instance_console_connections,
-        compartment_id=tenant_cfg["tenant_id"],
+        compartment_id=compartment_of(tenant_cfg),
         instance_id=instance_id,
     )
     rows = []

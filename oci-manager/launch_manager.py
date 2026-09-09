@@ -11,38 +11,21 @@ import oci
 from db import connect
 from notify import notify
 from oci_helpers import get_compute_client, get_identity_client, get_network_client, list_all
-from settings import LAUNCH_PRESETS, LAUNCH_TASKS_PATH, RETRYABLE_KEYWORDS
+from settings import LAUNCH_PRESETS, RETRYABLE_KEYWORDS
 from storage import now_iso
+from compartment_scope import compartment_of
 
 LAUNCH_TASKS: dict[str, dict[str, Any]] = {}
 TASK_LOCK = threading.RLock()
 
 
 def load_launch_tasks() -> None:
-    loaded = load_launch_tasks_from_db()
-    if loaded:
-        return
-    try:
-        raw = json.loads(LAUNCH_TASKS_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return
-    if not isinstance(raw, dict):
-        return
-    with TASK_LOCK:
-        LAUNCH_TASKS.clear()
-        changed = False
-        for task_id, task in raw.items():
-            if not isinstance(task, dict):
-                continue
-            task = dict(task)
-            if task.get("status") in {"queued", "running"}:
-                task["status"] = "interrupted"
-                task["finished_at"] = task.get("finished_at") or now_iso()
-                task.setdefault("logs", []).append(f"[{datetime.now().strftime('%H:%M:%S')}] 服务重启，任务已标记为中断。")
-                changed = True
-            LAUNCH_TASKS[str(task_id)] = task
-    if changed:
-        save_launch_tasks()
+    """服务启动时恢复任务表，并把上次运行遗留的 queued/running 标记为 interrupted。
+
+    由 app 显式调用，不在 import 时执行——import 触发磁盘 IO 和状态改写会让
+    测试与工具脚本难以复用这个模块。
+    """
+    load_launch_tasks_from_db()
 
 
 def load_launch_tasks_from_db() -> bool:
@@ -76,6 +59,12 @@ def load_launch_tasks_from_db() -> bool:
 
 
 def save_launch_tasks() -> None:
+    """把任务表整体写入 SQLite。
+
+    早期版本在写库失败时回退写 JSON，导致同一份数据有两个可能的来源、
+    读的时候又要按优先级猜。现在 JSON 回退已移除：写库失败就是失败，
+    宁可在页面上暴露，也不要留下两份会互相覆盖的真值。
+    """
     with TASK_LOCK:
         payload = {task_id: task for task_id, task in LAUNCH_TASKS.items()}
     try:
@@ -101,11 +90,9 @@ def save_launch_tasks() -> None:
                         json.dumps(task, ensure_ascii=False, separators=(",", ":")),
                     ),
                 )
-    except Exception:
-        try:
-            LAUNCH_TASKS_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        except OSError:
-            return
+    except Exception as exc:
+        # 不静默：任务日志是排查抢实例失败的唯一线索，丢了必须让人看见
+        print(f"[launch_manager] 保存任务失败: {exc}", flush=True)
 
 
 def is_retryable_launch_error(exc: Exception) -> bool:
@@ -189,6 +176,28 @@ def discover_candidate_images(compute_client: oci.core.ComputeClient, compartmen
 
 
 def launch_context(tenant_cfg: dict[str, Any]) -> dict[str, Any]:
+    """创建实例所需的可用域/子网/镜像清单。
+
+    镜像列表（list_images）可能几百条，是实例页最慢的部分之一，挂 TTL 缓存。
+    """
+    from cache import cached
+
+    tenant_name = tenant_cfg.get("_tenant_name") or tenant_cfg.get("tenant_id", "-")
+    try:
+        from flask import g
+
+        bypass = bool(getattr(g, "cache_bypass", False))
+    except RuntimeError:
+        bypass = False
+    return cached(
+        ("launch_context", tenant_name, compartment_of(tenant_cfg)),
+        _launch_context_uncached,
+        bypass=bypass,
+        args=(tenant_cfg,),
+    )
+
+
+def _launch_context_uncached(tenant_cfg: dict[str, Any]) -> dict[str, Any]:
     identity_client = get_identity_client(tenant_cfg)
     network_client = get_network_client(tenant_cfg)
     compute_client = get_compute_client(tenant_cfg)
@@ -200,13 +209,13 @@ def launch_context(tenant_cfg: dict[str, Any]) -> dict[str, Any]:
             "cidr": subnet.cidr_block,
             "availability_domain": subnet.availability_domain or "Regional",
         }
-        for subnet in list_all(network_client.list_subnets, compartment_id=tenant_cfg["tenant_id"])
+        for subnet in list_all(network_client.list_subnets, compartment_id=compartment_of(tenant_cfg))
     ]
     subnets.sort(key=lambda item: (item["name"] or "", item["availability_domain"]))
     return {
         "availability_domains": availability_domains,
         "subnets": subnets,
-        "images": discover_candidate_images(compute_client, tenant_cfg["tenant_id"]),
+        "images": discover_candidate_images(compute_client, compartment_of(tenant_cfg)),
     }
 
 
@@ -230,7 +239,7 @@ def build_launch_details(tenant_cfg: dict[str, Any], form: dict[str, Any]) -> oc
 
     details = oci.core.models.LaunchInstanceDetails(
         availability_domain=form["availability_domain"],
-        compartment_id=tenant_cfg["tenant_id"],
+        compartment_id=compartment_of(tenant_cfg),
         display_name=display_name,
         shape=shape,
         source_details=source_details,
@@ -292,6 +301,3 @@ def launch_worker(task_id: str, tenant_cfg: dict[str, Any], form: dict[str, Any]
     update_task(task_id, status="failed", finished_at=now_iso())
     append_task_log(task_id, "任务结束，达到最大重试次数。")
     notify("OCI 创建实例失败", f"{task_id}: 达到最大重试次数。", {"tenant_name": tenant_cfg.get("_tenant_name")})
-
-
-load_launch_tasks()

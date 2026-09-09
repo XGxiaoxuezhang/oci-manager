@@ -125,9 +125,34 @@ def env_int(name: str, default: int) -> int:
 OCI_CONNECT_TIMEOUT = env_int("OCI_MANAGER_OCI_CONNECT_TIMEOUT", 8)
 OCI_READ_TIMEOUT = env_int("OCI_MANAGER_OCI_READ_TIMEOUT", 30)
 
+# 单请求上传体积上限，防止对象上传无节制地把内存和带宽吃满。
+MAX_UPLOAD_MB = max(1, env_int("OCI_MANAGER_MAX_UPLOAD_MB", 100))
+MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+
 
 def secret_key() -> str:
-    return os.environ.get("OCI_MANAGER_SECRET_KEY", "oci-manager-dev-key")
+    """会话签名密钥。
+
+    优先级：环境变量 > 落盘的随机密钥（首次启动自动生成）> 报错。
+    不再回退到硬编码默认值，避免他人伪造会话 cookie。
+    """
+    env_value = os.environ.get("OCI_MANAGER_SECRET_KEY", "").strip()
+    if env_value and env_value not in {"change-this-secret-key", "oci-manager-dev-key"}:
+        return env_value
+    secret_file = DATA_DIR / ".secret_key"
+    if secret_file.exists():
+        saved = secret_file.read_text(encoding="utf-8").strip()
+        if saved:
+            return saved
+    import secrets as _secrets
+
+    generated = _secrets.token_urlsafe(48)
+    secret_file.write_text(generated, encoding="utf-8")
+    try:
+        os.chmod(secret_file, 0o600)
+    except OSError:
+        pass
+    return generated
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -178,6 +203,15 @@ def login_lock_seconds() -> int:
 
 def session_cookie_secure() -> bool:
     return env_bool("OCI_MANAGER_SESSION_COOKIE_SECURE", False)
+
+
+def trusted_proxy_enabled() -> bool:
+    """是否信任反向代理头（X-Forwarded-For）。
+
+    默认关闭：登录限速使用 request.remote_addr（真实来源），避免攻击者伪造
+    X-Forwarded-For 绕过限速。只有部署在可信反代（nginx/traefik）之后时才应开启。
+    """
+    return env_bool("OCI_MANAGER_TRUSTED_PROXY", False)
 
 
 def format_region(region: str) -> str:

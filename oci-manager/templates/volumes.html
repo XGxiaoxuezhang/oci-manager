@@ -1,0 +1,267 @@
+{% extends "base.html" %}
+
+{% block title %}块存储 | OCI 管理器{% endblock %}
+{% block page_title %}块存储{% endblock %}
+{% block page_desc %}租户：{{ tenant_name }} · 卷、引导卷与备份{% endblock %}
+{% block page_actions %}
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/instances">返回实例</a>
+{% endblock %}
+
+{% block content %}
+
+{% if load_error %}
+<div class="flash error">{{ load_error }}</div>
+{% endif %}
+
+{% if orphan_count %}
+<div class="flash warn">
+  有 {{ orphan_count }} 个卷没有挂载到任何实例。它们<strong>持续计费</strong>，确认不用后可以删除或先做个备份。
+</div>
+{% endif %}
+
+<section class="section-head">
+  <div>
+    <h2>块存储卷</h2>
+    <div class="section-sub">可挂载到实例的数据盘。卷只能扩容，不能缩容。</div>
+  </div>
+</section>
+
+<section class="table-card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>名称</th><th>大小</th><th>状态</th><th>挂载到</th><th>可用性域</th><th>创建时间</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for volume in volumes %}
+        <tr>
+          <td>{{ volume.name }}</td>
+          <td>{{ volume.size_gbs }} GB</td>
+          <td><span class="badge {{ 'badge-good' if volume.state == 'AVAILABLE' else 'badge-mid' }}">{{ volume.state }}</span></td>
+          <td>
+            {% if volume.attached %}
+            {{ volume.attached.instance_name }}
+            <div class="small">{{ volume.attached.type }}</div>
+            {% else %}
+            <span class="badge badge-warn">未挂载</span>
+            {% endif %}
+          </td>
+          <td>{{ volume.availability_domain }}</td>
+          <td>{{ volume.created }}</td>
+          <td>
+            <div class="row-actions">
+              {% if volume.attached %}
+              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/volume-attachment/{{ volume.attached.attachment_id }}/detach" onsubmit="return confirm('确认从 {{ volume.attached.instance_name }} 卸载该卷吗？');">
+                <button class="btn btn-secondary" type="submit">卸载</button>
+              </form>
+              {% else %}
+              <details class="fold">
+                <summary class="btn btn-secondary">挂载</summary>
+                <div class="fold-body">
+                  <form method="post" action="/tenant/{{ tenant_name }}/volume/{{ volume.id }}/attach">
+                    <label class="field">
+                      <span>目标实例</span>
+                      <select name="instance_id">
+                        {% for inst in instances %}
+                        <option value="{{ inst.id }}">{{ inst.name }}（{{ inst.state }}）</option>
+                        {% endfor %}
+                      </select>
+                    </label>
+                    <button class="btn btn-primary" type="submit">确认挂载</button>
+                  </form>
+                </div>
+              </details>
+              {% endif %}
+
+              <details class="fold">
+                <summary class="btn btn-secondary">扩容</summary>
+                <div class="fold-body">
+                  <form method="post" action="/tenant/{{ tenant_name }}/volume/{{ volume.id }}/resize">
+                    <input type="hidden" name="current_size" value="{{ volume.size_gbs }}">
+                    <label class="field">
+                      <span>新的大小（GB，当前 {{ volume.size_gbs }}）</span>
+                      <input type="number" name="size_gbs" min="1" max="32768" value="{{ volume.size_gbs + 10 }}">
+                    </label>
+                    <button class="btn btn-primary" type="submit">确认扩容</button>
+                  </form>
+                </div>
+              </details>
+
+              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/volume/{{ volume.id }}/backup">
+                <button class="btn btn-secondary" type="submit">备份</button>
+              </form>
+
+              {% if not volume.attached %}
+              <details class="fold">
+                <summary class="btn btn-secondary">删除</summary>
+                <div class="fold-body">
+                  <form method="post" action="/tenant/{{ tenant_name }}/volume/{{ volume.id }}/delete">
+                    <input type="hidden" name="volume_name" value="{{ volume.name }}">
+                    <label class="field">
+                      <span>输入卷名 <strong>{{ volume.name }}</strong> 以确认</span>
+                      <input type="text" name="confirm_name" placeholder="{{ volume.name }}">
+                    </label>
+                    <button class="btn btn-primary" type="submit">确认删除</button>
+                  </form>
+                </div>
+              </details>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7"><div class="empty">当前 compartment 下没有块存储卷。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section-head">
+  <div>
+    <h2>引导卷</h2>
+    <div class="section-sub">终止实例时若勾选了「保留引导卷」，残留的卷会出现在这里。</div>
+  </div>
+</section>
+
+<section class="table-card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>名称</th><th>大小</th><th>状态</th><th>实例</th><th>可用性域</th><th>创建时间</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for volume in boot_volumes %}
+        <tr>
+          <td>{{ volume.name }}</td>
+          <td>{{ volume.size_gbs }} GB</td>
+          <td><span class="badge {{ 'badge-good' if volume.state == 'AVAILABLE' else 'badge-mid' }}">{{ volume.state }}</span></td>
+          <td>{{ volume.attached.instance_name if volume.attached else '—' }}</td>
+          <td>{{ volume.availability_domain }}</td>
+          <td>{{ volume.created }}</td>
+          <td>
+            <div class="row-actions">
+              <details class="fold">
+                <summary class="btn btn-secondary">扩容</summary>
+                <div class="fold-body">
+                  <form method="post" action="/tenant/{{ tenant_name }}/boot-volume/{{ volume.id }}/resize">
+                    <input type="hidden" name="current_size" value="{{ volume.size_gbs }}">
+                    <label class="field">
+                      <span>新的大小（GB，当前 {{ volume.size_gbs }}）</span>
+                      <input type="number" name="size_gbs" min="50" max="32768" value="{{ volume.size_gbs + 10 }}">
+                    </label>
+                    <button class="btn btn-primary" type="submit">确认扩容</button>
+                  </form>
+                </div>
+              </details>
+
+              {% if not volume.attached %}
+              <details class="fold">
+                <summary class="btn btn-secondary">删除</summary>
+                <div class="fold-body">
+                  <form method="post" action="/tenant/{{ tenant_name }}/boot-volume/{{ volume.id }}/delete">
+                    <input type="hidden" name="volume_name" value="{{ volume.name }}">
+                    <label class="field">
+                      <span>输入名称 <strong>{{ volume.name }}</strong> 以确认</span>
+                      <input type="text" name="confirm_name" placeholder="{{ volume.name }}">
+                    </label>
+                    <button class="btn btn-primary" type="submit">确认删除</button>
+                  </form>
+                </div>
+              </details>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7"><div class="empty">没有引导卷。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section-head">
+  <div>
+    <h2>卷备份</h2>
+    <div class="section-sub">恢复会创建一个新卷，不会覆盖原卷。</div>
+  </div>
+</section>
+
+<section class="table-card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>名称</th><th>源卷</th><th>大小</th><th>类型</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for backup in backups %}
+        <tr>
+          <td>{{ backup.name }}</td>
+          <td>{{ backup.volume_name }}</td>
+          <td>{{ backup.size_gbs }} GB</td>
+          <td>{{ backup.type }}</td>
+          <td><span class="badge {{ 'badge-good' if backup.state == 'AVAILABLE' else 'badge-mid' }}">{{ backup.state }}</span></td>
+          <td>{{ backup.created }}</td>
+          <td>
+            <div class="row-actions">
+              <details class="fold">
+                <summary class="btn btn-secondary">恢复为新卷</summary>
+                <div class="fold-body">
+                  <form method="post" action="/tenant/{{ tenant_name }}/volume-backup/{{ backup.id }}/restore">
+                    <label class="field">
+                      <span>可用性域</span>
+                      <select name="availability_domain">
+                        {% for ad in availability_domains %}
+                        <option value="{{ ad }}">{{ ad }}</option>
+                        {% endfor %}
+                      </select>
+                    </label>
+                    <label class="field">
+                      <span>新卷名称（可选）</span>
+                      <input type="text" name="display_name" placeholder="restored-{{ backup.name }}">
+                    </label>
+                    <button class="btn btn-primary" type="submit">确认恢复</button>
+                  </form>
+                </div>
+              </details>
+
+              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/volume-backup/{{ backup.id }}/delete" onsubmit="return confirm('确认删除备份 {{ backup.name }} 吗？此操作不可撤销。');">
+                <button class="btn btn-secondary" type="submit">删除</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7"><div class="empty">还没有卷备份。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section-head">
+  <div>
+    <h2>新建卷</h2>
+    <div class="section-sub">创建后还需在上方列表中挂载到实例才可使用。</div>
+  </div>
+</section>
+
+<section class="table-card">
+  <div class="stack">
+    <form method="post" action="/tenant/{{ tenant_name }}/volumes/create" class="field-row">
+      <label class="field">
+        <span>可用性域</span>
+        <select name="availability_domain">
+          {% for ad in availability_domains %}
+          <option value="{{ ad }}">{{ ad }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span>大小（GB）</span>
+        <input type="number" name="size_gbs" min="1" max="32768" value="50">
+      </label>
+      <label class="field" style="flex:1;">
+        <span>名称（可选）</span>
+        <input type="text" name="display_name" placeholder="data-volume">
+      </label>
+      <button class="btn btn-primary" type="submit">创建</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

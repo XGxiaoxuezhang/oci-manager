@@ -5,7 +5,6 @@ services:
     restart: unless-stopped
     ports:
       - "5080:5080"
-      - "6080-6099:6080-6099"
     environment:
       OCI_MANAGER_HOST: "0.0.0.0"
       OCI_MANAGER_PORT: "5080"

@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+
+{% block title %}网络 | OCI 管理器{% endblock %}
+{% block page_title %}网络{% endblock %}
+{% block page_desc %}租户：{{ tenant_name }} · VCN、子网与路由{% endblock %}
+{% block page_actions %}
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/nsg">网络安全组</a>
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/security-lists">安全列表</a>
+{% endblock %}
+
+{% block content %}
+
+{% if load_error %}
+<div class="flash error">{{ load_error }}</div>
+{% endif %}
+
+<div class="flash">
+  这里的视图是只读的。判断"某个端口到底开没开"时记得：安全列表（Security List）与网络安全组（NSG）
+  是<strong>并集</strong>生效，两边都要看。
+</div>
+
+<section class="section-head">
+  <div>
+    <h2>VCN</h2>
+    <div class="section-sub">虚拟云网络，一个 VCN 下可挂多个子网。</div>
+  </div>
+</section>
+
+<section class="table-card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>名称</th><th>CIDR</th><th>状态</th><th>子网</th><th>DNS 标签</th><th>创建时间</th></tr></thead>
+      <tbody>
+        {% for vcn in vcns %}
+        <tr>
+          <td>{{ vcn.name }}</td>
+          <td>{{ vcn.cidr }}</td>
+          <td><span class="badge {{ 'badge-good' if vcn.state == 'AVAILABLE' else 'badge-mid' }}">{{ vcn.state }}</span></td>
+          <td>{{ vcn.subnet_count }}</td>
+          <td>{{ vcn.dns_label }}</td>
+          <td>{{ vcn.created }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6"><div class="empty">当前 compartment 下没有 VCN。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section-head">
+  <div>
+    <h2>子网</h2>
+    <div class="section-sub">「公网」列决定实例能否拿到公网 IP，创建实例时选错子网会拿不到地址。</div>
+  </div>
+</section>
+
+<section class="table-card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>名称</th><th>CIDR</th><th>VCN</th><th>可用性域</th><th>公网</th><th>安全列表</th><th>创建时间</th></tr></thead>
+      <tbody>
+        {% for subnet in subnets %}
+        <tr>
+          <td>{{ subnet.name }}</td>
+          <td>{{ subnet.cidr }}</td>
+          <td>{{ subnet.vcn }}</td>
+          <td>{{ subnet.availability_domain }}</td>
+          <td>
+            <span class="badge {{ 'badge-good' if subnet.public else 'badge-mid' }}">{{ '可分配公网 IP' if subnet.public else '仅私网' }}</span>
+            <div class="small">{{ subnet.public_reason }}</div>
+          </td>
+          <td>{{ subnet.security_list_count }}</td>
+          <td>{{ subnet.created }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7"><div class="empty">没有子网。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section-head">
+  <div>
+    <h2>路由表</h2>
+    <div class="section-sub">展开可看每条规则的目标网关。</div>
+  </div>
+</section>
+
+<section class="table-card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>名称</th><th>VCN</th><th>规则</th></tr></thead>
+      <tbody>
+        {% for table in route_tables %}
+        <tr>
+          <td>{{ table.name }}</td>
+          <td>{{ table.vcn }}</td>
+          <td>
+            {% if table.rules %}
+            <details class="fold">
+              <summary>{{ table.rules | length }} 条规则</summary>
+              <div style="margin-top:8px;">
+                {% for rule in table.rules %}
+                <div class="small">{{ rule.destination }} → {{ rule.target }}</div>
+                {% endfor %}
+              </div>
+            </details>
+            {% else %}
+            <span class="small">无规则</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3"><div class="empty">没有路由表。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section-head">
+  <div>
+    <h2>网关</h2>
+    <div class="section-sub">互联网网关、NAT 网关与服务网关。</div>
+  </div>
+</section>
+
+<section class="table-card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>名称</th><th>类型</th><th>VCN</th><th>状态</th></tr></thead>
+      <tbody>
+        {% for gw in gateways %}
+        <tr>
+          <td>{{ gw.name }}</td>
+          <td>{{ gw.kind }}</td>
+          <td>{{ gw.vcn }}</td>
+          <td><span class="badge {{ 'badge-good' if gw.state == 'AVAILABLE' else 'badge-mid' }}">{{ gw.state }}</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4"><div class="empty">没有网关。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

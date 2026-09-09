@@ -1,13 +1,12 @@
 {% extends "base.html" %}
 
 {% block title %}免费额度 | OCI 管理器{% endblock %}
-{% block hero_title %}免费额度与风险提示{% endblock %}
-{% block hero_text %}按资源清单估算常见 Always Free 用量，不等于账单。{% endblock %}
+{% block page_title %}免费额度与风险提示{% endblock %}
+{% block page_desc %}按资源清单估算常见 Always Free 用量，不等于账单。{% endblock %}
 
 {% block content %}
 <section class="section-head">
   <div>
-    <div class="eyebrow">筛选</div>
     <h2>免费额度估算</h2>
     <div class="section-sub">默认读取第一个租户，可切换其他租户。</div>
   </div>
@@ -45,13 +44,49 @@
 
 {% if risks %}
 <section class="table-card" style="margin-bottom:12px;">
-  <div class="section-head"><div><div class="eyebrow">风险</div><h2>风险提示</h2></div></div>
+  <div class="section-head"><div><h2>风险提示</h2></div></div>
   <div class="table-wrap">
     <table>
       <thead><tr><th>级别</th><th>内容</th></tr></thead>
       <tbody>
         {% for risk in risks %}
         <tr><td><span class="badge {{ 'badge-bad' if risk.level == 'bad' else 'badge-mid' }}">{{ risk.level }}</span></td><td>{{ risk.text }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{% if trend and trend.has_history and trend.trend_items %}
+<section class="table-card" style="margin-bottom:12px;">
+  <div class="section-head">
+    <div>
+      <h2>近 30 天趋势</h2>
+      <div class="section-sub small">来自每日快照（每天 00:05 后自动记录一次），只显示有波动的指标。</div>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>指标</th><th>最新</th><th>峰值</th><th>额度</th><th>峰值占比</th><th>曲线</th></tr></thead>
+      <tbody>
+        {% for item in trend.trend_items %}
+        <tr>
+          <td>{{ item.label }}</td>
+          <td>{{ item.latest }} {{ item.unit }}</td>
+          <td>{{ item.peak }} {{ item.unit }}</td>
+          <td>{{ item.limit or '-' }}</td>
+          <td>{{ item.percent_peak if item.percent_peak is not none else '-' }}%</td>
+          <td style="min-width:180px;">
+            {% set n = item.series|length %}
+            {% if n > 1 %}
+            <svg width="180" height="24" viewBox="0 0 180 24" preserveAspectRatio="none" role="img" style="display:block;">
+              <polyline fill="none" stroke="#1b6ac9" stroke-width="1.2"
+                points="{% for point in item.series %}{{ ((loop.index0 * 180) / (n - 1))|round(1) }},{{ (24 - ([point.used / item.limit, 1]|min if item.limit else 0) * 22)|round(1) }} {% endfor %}" />
+            </svg>
+            {% endif %}
+          </td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>

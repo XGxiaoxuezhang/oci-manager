@@ -48,8 +48,9 @@ def system_context() -> dict[str, Any]:
             }
         )
 
-    secret_value = os.environ.get("OCI_MANAGER_SECRET_KEY")
-    secret_is_placeholder = secret_value in {None, "", "change-this-secret-key", "oci-manager-dev-key"}
+    secret_env = os.environ.get("OCI_MANAGER_SECRET_KEY", "").strip()
+    secret_is_env = bool(secret_env and secret_env not in {"change-this-secret-key", "oci-manager-dev-key"})
+    secret_value = "env" if secret_is_env else "auto-generated"
     checks = [
         {"label": "Python", "value": sys.version.split()[0], "status": "ok"},
         {"label": "平台", "value": platform.platform(), "status": "ok"},
@@ -67,8 +68,8 @@ def system_context() -> dict[str, Any]:
         {"label": "Cookie Secure", "value": "on" if session_cookie_secure() else "off", "status": "ok" if session_cookie_secure() else "warn"},
         {
             "label": "Secret Key",
-            "value": "default/placeholder" if secret_is_placeholder else "env",
-            "status": "warn" if secret_is_placeholder else "ok",
+            "value": secret_value,
+            "status": "ok",
         },
     ]
     return {"checks": checks, "tenant_checks": tenant_checks}

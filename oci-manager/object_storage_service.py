@@ -8,6 +8,7 @@ import oci
 
 from oci_helpers import build_config, client_kwargs, list_all
 from storage import fmt_dt
+from compartment_scope import compartment_of
 
 BUCKET_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
 
@@ -62,7 +63,7 @@ def _bucket_detail(bucket: Any) -> dict[str, Any]:
 def storage_context(tenant_cfg: dict[str, Any], namespace: str | None = None, bucket_name: str | None = None, prefix: str = "") -> dict[str, Any]:
     client = get_object_storage_client(tenant_cfg)
     namespace_name = namespace or client.get_namespace().data
-    buckets = list_all(client.list_buckets, namespace_name=namespace_name, compartment_id=tenant_cfg["tenant_id"])
+    buckets = list_all(client.list_buckets, namespace_name=namespace_name, compartment_id=compartment_of(tenant_cfg))
     bucket_rows = sorted((_bucket_row(bucket) for bucket in buckets), key=lambda item: item["name"].lower())
 
     selected_bucket = None
@@ -126,7 +127,7 @@ def create_bucket(tenant_cfg: dict[str, Any], bucket_name: str, storage_tier: st
     client.create_bucket(
         namespace_name=namespace_name,
         create_bucket_details=oci.object_storage.models.CreateBucketDetails(
-            compartment_id=tenant_cfg["tenant_id"],
+            compartment_id=compartment_of(tenant_cfg),
             name=bucket_name,
             storage_tier=storage_tier,
             public_access_type="NoPublicAccess",

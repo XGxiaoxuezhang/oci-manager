@@ -1,14 +1,9 @@
 {% extends "base.html" %}
 
 {% block title %}安全列表 | OCI 管理器{% endblock %}
+{% block page_title %}安全组{% endblock %}
+{% block page_desc %}租户：{{ tenant_name }}{% endblock %}
 {% block content %}
-<section class="section-head">
-  <div>
-    <div class="eyebrow">Network Security</div>
-    <h2>安全列表</h2>
-    <div class="section-sub">租户：{{ tenant_name }}</div>
-  </div>
-</section>
 
 {% if load_error %}
 <div class="flash error">安全列表读取失败：{{ load_error }}</div>

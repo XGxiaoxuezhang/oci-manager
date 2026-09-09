@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}NSG 规则 | OCI 管理器{% endblock %}
+{% block page_title %}{{ nsg.name }}{% endblock %}
+{% block page_desc %}租户：{{ tenant_name }} · 网络安全组规则{% endblock %}
+{% block page_actions %}
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/nsg">返回列表</a>
+{% endblock %}
+
+{% block content %}
+
+<section class="section-head">
+  <div>
+    <h2>现有规则</h2>
+    <div class="section-sub">共 {{ rules | length }} 条。无效规则（is_valid=false）通常是引用了已删除的 NSG，不会生效。</div>
+  </div>
+</section>
+
+<section class="table-card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>方向</th><th>协议</th><th>端口</th><th>来源 / 目标</th><th>类型</th><th>说明</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for rule in rules %}
+        <tr>
+          <td>{{ rule.direction_label }}</td>
+          <td>{{ rule.protocol }}</td>
+          <td>{{ rule.ports }}</td>
+          <td>{{ rule.cidr }}</td>
+          <td>{{ rule.peer_type }}</td>
+          <td>
+            {{ rule.description or '—' }}
+            {% if not rule.is_valid %}<div class="badge badge-bad">无效</div>{% endif %}
+            {% if rule.stateless %}<div class="small">无状态</div>{% endif %}
+          </td>
+          <td>
+            <details class="fold">
+              <summary class="btn btn-secondary">编辑</summary>
+              <div class="fold-body">
+                <form method="post" action="/tenant/{{ tenant_name }}/nsg/{{ nsg.id }}/rule/{{ rule.id }}/update">
+                  <label class="field">
+                    <span>方向</span>
+                    <select name="direction">
+                      <option value="INGRESS" {{ 'selected' if rule.direction == 'INGRESS' else '' }}>入站</option>
+                      <option value="EGRESS" {{ 'selected' if rule.direction == 'EGRESS' else '' }}>出站</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>协议</span>
+                    <select name="protocol">
+                      {% for value, label in protocol_options %}
+                      <option value="{{ value }}" {{ 'selected' if value == rule.raw_protocol else '' }}>{{ label }}</option>
+                      {% endfor %}
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>来源 / 目标 CIDR</span>
+                    <input type="text" name="cidr" value="{{ rule.cidr }}">
+                  </label>
+                  <label class="field">
+                    <span>端口（TCP/UDP，可填 80 或 8000-9000）</span>
+                    <input type="text" name="ports" value="{{ rule.ports if rule.ports != '-' else '' }}">
+                  </label>
+                  <label class="field">
+                    <span>说明</span>
+                    <input type="text" name="description" value="{{ rule.description }}">
+                  </label>
+                  <label class="check-row">
+                    <input type="checkbox" name="stateless" {{ 'checked' if rule.stateless else '' }}>
+                    <span>无状态（不跟踪返回流量）</span>
+                  </label>
+                  <button class="btn btn-primary" type="submit">保存</button>
+                </form>
+              </div>
+            </details>
+            <form class="inline" method="post" action="/tenant/{{ tenant_name }}/nsg/{{ nsg.id }}/rule/{{ rule.id }}/delete" onsubmit="return confirm('确认删除这条规则吗？');">
+              <button class="btn btn-secondary" type="submit">删除</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7"><div class="empty">这个 NSG 还没有任何规则。</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section-head">
+  <div>
+    <h2>添加规则</h2>
+    <div class="section-sub">开放端口请尽量写明确的来源网段，避免直接 0.0.0.0/0。</div>
+  </div>
+</section>
+
+<section class="table-card">
+  <div class="stack">
+    <form method="post" action="/tenant/{{ tenant_name }}/nsg/{{ nsg.id }}/rule/add" class="field-row">
+      <label class="field">
+        <span>方向</span>
+        <select name="direction">
+          <option value="INGRESS">入站</option>
+          <option value="EGRESS">出站</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>协议</span>
+        <select name="protocol">
+          {% for value, label in protocol_options %}
+          <option value="{{ value }}" {{ 'selected' if value == '6' else '' }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span>来源 / 目标 CIDR</span>
+        <input type="text" name="cidr" value="0.0.0.0/0" placeholder="0.0.0.0/0">
+      </label>
+      <label class="field">
+        <span>端口</span>
+        <input type="text" name="ports" placeholder="22 或 8000-9000">
+      </label>
+      <label class="field" style="flex:1;">
+        <span>说明</span>
+        <input type="text" name="description" placeholder="例如：临时开放 SSH">
+      </label>
+      <label class="check-row">
+        <input type="checkbox" name="stateless">
+        <span>无状态</span>
+      </label>
+      <button class="btn btn-primary" type="submit">添加</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

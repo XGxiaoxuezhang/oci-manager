@@ -23,11 +23,11 @@
     <section class="panel">
       <div class="section-head">
         <div>
-          <div class="eyebrow">登录</div>
           <h2>管理员登录</h2>
         </div>
       </div>
       <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="field">
           <label>用户名</label>
           <input name="username" value="{{ auth_username }}" required>

@@ -67,3 +67,18 @@ Thumbs.db
 # Logs
 *.log
 server.*.log
+
+# 会话签名密钥（运行时生成）
+.secret_key
+**/.secret_key
+
+# 私钥与旧备份产物
+*.pem
+*.old
+*.db.old
+
+# 本地工具目录（含旧数据备份、私钥、工作记忆）
+.workbuddy/
+
+# 凭据导出压缩包（内含租户私钥）
+/6.zip

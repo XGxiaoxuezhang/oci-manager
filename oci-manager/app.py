@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import secrets
 
-from flask import Flask, abort, request, session
+from flask import Flask, abort, flash, redirect, request, session, url_for
 
 from audit import record_audit
 from audit_routes import audit_bp
@@ -14,7 +14,17 @@ from auth_routes import auth_bp
 from database_routes import database_bp
 from email_routes import email_bp
 from object_storage_routes import object_storage_bp
-from settings import clear_proxy_enabled, debug_enabled, server_host, server_port, secret_key, session_cookie_secure, session_lifetime
+from settings import (
+    MAX_UPLOAD_BYTES,
+    MAX_UPLOAD_MB,
+    clear_proxy_enabled,
+    debug_enabled,
+    server_host,
+    server_port,
+    secret_key,
+    session_cookie_secure,
+    session_lifetime,
+)
 from settings_routes import settings_bp
 from system_routes import system_bp
 from storage import ensure_auth_settings
@@ -57,6 +67,7 @@ def create_app() -> Flask:
     app.secret_key = secret_key()
     app.permanent_session_lifetime = session_lifetime()
     app.config.update(
+        MAX_CONTENT_LENGTH=MAX_UPLOAD_BYTES,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=session_cookie_secure(),
@@ -74,9 +85,42 @@ def create_app() -> Flask:
     app.register_blueprint(cost_bp)
     app.register_blueprint(check_bp)
 
+    # 这些原先写在模块末尾，import 即执行；现在集中在启动时跑一次
+    from db import bootstrap
+    from launch_manager import load_launch_tasks
+    from oci_helpers import migrate_tenant_key_paths
+
+    bootstrap()
+    load_launch_tasks()
+    ensure_auth_settings()
+    migrate_tenant_key_paths()
+
+    # 后台调度：巡检定时化 / 资源定时启停 / 成本每日快照
+    from scheduler_service import start_scheduler
+
+    start_scheduler()
+
     @app.context_processor
     def inject_security_helpers():
         return {"csrf_token": csrf_token}
+
+    @app.context_processor
+    def inject_compartment():
+        """把当前 compartment 切换器注入所有模板，侧栏据此渲染下拉框。"""
+        from flask import g
+
+        from compartment_scope import compartment_name_of
+        from compartment_service import switcher_context
+
+        tenant_cfg = getattr(g, "tenant_cfg", None)
+        tenant_name = tenant_cfg.get("_tenant_name") if tenant_cfg else ""
+        if not tenant_name:
+            return {"compartment_switcher": None, "compartment_name": ""}
+        try:
+            switcher = switcher_context(tenant_cfg, tenant_name)
+        except Exception:
+            switcher = None
+        return {"compartment_switcher": switcher, "compartment_name": compartment_name_of(tenant_cfg)}
 
     @app.before_request
     def verify_csrf_token():
@@ -90,12 +134,13 @@ def create_app() -> Flask:
 
     @app.after_request
     def audit_mutations(response):
-        if response.status_code < 400 and request.method == "POST" and request.endpoint not in {"auth.login", "auth.logout"}:
+        if request.method == "POST" and request.endpoint not in {"auth.login", "auth.logout"}:
             try:
                 record_audit(
                     request.endpoint or request.path,
                     user=session.get("username"),
                     tenant_name=request.view_args.get("tenant_name") if request.view_args else None,
+                    status="success" if response.status_code < 400 else "failed",
                     details={
                         "path": request.path,
                         "status_code": response.status_code,
@@ -108,6 +153,11 @@ def create_app() -> Flask:
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "same-origin")
         return response
+
+    @app.errorhandler(413)
+    def upload_too_large(error):
+        flash(f"上传内容超过 {MAX_UPLOAD_MB} MB 限制，请改用分片或缩小文件。", "error")
+        return redirect(request.referrer or url_for("tenant.index"))
 
     @app.get("/healthz")
     def healthz():
@@ -125,7 +175,6 @@ app = create_app()
 
 if __name__ == "__main__":
     clear_broken_proxy_env()
-    ensure_auth_settings()
     host = server_host()
     port = server_port()
     print(f"OCI Manager running at http://127.0.0.1:{port}")

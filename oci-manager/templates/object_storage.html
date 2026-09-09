@@ -1,23 +1,18 @@
 {% extends "base.html" %}
 
 {% block title %}对象存储 | OCI 管理器{% endblock %}
+{% block page_title %}对象存储{% endblock %}
+{% block page_desc %}命名空间 {{ namespace_name }} · 租户 {{ tenant_name }}{% endblock %}
+{% block page_actions %}
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/object-storage/export{% if selected_bucket %}?bucket={{ selected_bucket|urlencode }}&prefix={{ object_prefix|urlencode }}{% endif %}">导出 CSV</a>
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/object-storage/rclone.conf{% if selected_bucket %}?bucket={{ selected_bucket|urlencode }}{% endif %}">rclone 配置</a>
+{% endblock %}
+
 {% block content %}
 <section class="metrics">
   <div class="metric"><div class="label">Bucket 数量</div><div class="value">{{ storage_stats.bucket_count }}</div></div>
   <div class="metric"><div class="label">对象数量</div><div class="value">{{ storage_stats.object_count }}</div></div>
   <div class="metric"><div class="label">已用容量</div><div class="value" style="font-size:1.2rem">{{ storage_stats.total_size|format_bytes }}</div></div>
-</section>
-
-<section class="section-head">
-  <div>
-    <div class="eyebrow">对象存储</div>
-    <h2>命名空间 {{ namespace_name }}</h2>
-    <div class="section-sub">Bucket、对象、上传和下载。</div>
-  </div>
-  <div class="actions">
-    <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/object-storage/export{% if selected_bucket %}?bucket={{ selected_bucket|urlencode }}&prefix={{ object_prefix|urlencode }}{% endif %}">导出 CSV</a>
-    <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/object-storage/rclone.conf{% if selected_bucket %}?bucket={{ selected_bucket|urlencode }}{% endif %}">rclone 配置</a>
-  </div>
 </section>
 
 {% if load_error %}
@@ -60,7 +55,7 @@
 
 <section class="grid grid-2" style="margin-top:20px;">
   <article class="table-card">
-    <div class="section-head"><div><div class="eyebrow">Bucket</div><h2>Bucket 列表</h2></div></div>
+    <div class="section-head"><div><h2>Bucket 列表</h2></div></div>
     <div class="table-wrap">
       <table>
         <thead><tr><th>名称</th><th>层级</th><th>对象数</th><th>容量</th><th>操作</th></tr></thead>
@@ -91,7 +86,7 @@
   </article>
 
   <article class="info-card">
-    <div class="section-head"><div><div class="eyebrow">挂载</div><h2>本地挂载说明</h2></div></div>
+    <div class="section-head"><div><h2>本地挂载说明</h2></div></div>
     <p class="section-sub"><code>rclone mount</code> 参数。</p>
     <div class="kv-grid">
       <div class="kv-item"><strong>区域</strong>{{ mount_helper.region }}</div>
@@ -115,7 +110,7 @@ rclone mount {{ mount_helper.rclone_remote }}:{{ mount_helper.bucket }} X:\objec
 {% if selected_bucket %}
 <section class="grid grid-2" style="margin-top:20px;">
   <article class="info-card">
-    <div class="section-head"><div><div class="eyebrow">详情</div><h2>{{ selected_bucket_detail.name }}</h2></div></div>
+    <div class="section-head"><div><h2>{{ selected_bucket_detail.name }}</h2></div></div>
     <div class="kv-grid">
       <div class="kv-item"><strong>存储层级</strong>{{ selected_bucket_detail.storage_tier }}</div>
       <div class="kv-item"><strong>公共访问</strong>{{ selected_bucket_detail.public_access_type }}</div>
@@ -157,7 +152,7 @@ rclone mount {{ mount_helper.rclone_remote }}:{{ mount_helper.bucket }} X:\objec
 </section>
 
 <section class="table-card" style="margin-top:20px;">
-  <div class="section-head"><div><div class="eyebrow">对象</div><h2>{{ selected_bucket }}</h2></div></div>
+  <div class="section-head"><div><h2>{{ selected_bucket }}</h2></div></div>
   <div class="table-wrap">
     <table>
       <thead><tr><th>名称</th><th>大小</th><th>存储层</th><th>更新时间</th><th>操作</th></tr></thead>

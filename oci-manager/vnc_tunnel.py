@@ -153,7 +153,7 @@ def start_web_vnc(key: str, vnc_connection_string: str, private_key_path: str | 
         "websockify",
         "--idle-timeout",
         "1800",
-        f"0.0.0.0:{web_port}",
+        f"127.0.0.1:{web_port}",
         f"127.0.0.1:{vnc_port}",
     ]
     process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

@@ -7,7 +7,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import login_is_locked, record_login_attempt
 from rendering import render_page
-from settings import login_lock_seconds, login_max_failures
+from settings import login_lock_seconds, login_max_failures, trusted_proxy_enabled
 from storage import ensure_auth_settings, load_auth_settings, now_iso, save_auth_settings
 
 auth_bp = Blueprint("auth", __name__)
@@ -24,7 +24,7 @@ def safe_next_url(value: str | None) -> str:
 
 @auth_bp.before_app_request
 def require_login():
-    ensure_auth_settings()
+    # ensure_auth_settings() 已移到 app 启动时执行一次，这里不再每请求读一遍 YAML
     if request.endpoint in {"auth.login", "healthz", "chrome_devtools_probe", "static"}:
         return None
     if not session.get("authenticated"):
@@ -38,7 +38,10 @@ def login():
         return redirect(url_for("tenant.index"))
     settings = load_auth_settings()
     if request.method == "POST":
-        remote_addr = request.headers.get("X-Forwarded-For", request.remote_addr or "-").split(",")[0].strip()
+        if trusted_proxy_enabled():
+            remote_addr = request.headers.get("X-Forwarded-For", request.remote_addr or "-").split(",")[0].strip()
+        else:
+            remote_addr = request.remote_addr or "-"
         if login_is_locked(remote_addr):
             minutes = max(1, login_lock_seconds() // 60)
             flash(f"失败次数过多，请约 {minutes} 分钟后再试。", "error")

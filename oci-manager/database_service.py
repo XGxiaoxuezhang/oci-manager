@@ -8,6 +8,7 @@ import oci
 
 from oci_helpers import build_config, client_kwargs, list_all
 from storage import fmt_dt
+from compartment_scope import compartment_of
 
 
 def get_database_client(tenant_cfg: dict[str, str]) -> oci.database.DatabaseClient:
@@ -71,7 +72,7 @@ def _db_detail(db: Any) -> dict[str, Any]:
 
 def list_autonomous_databases_context(tenant_cfg: dict[str, str], database_id: str | None = None) -> dict[str, Any]:
     client = get_database_client(tenant_cfg)
-    rows = [_db_row(db) for db in list_all(client.list_autonomous_databases, compartment_id=tenant_cfg["tenant_id"])]
+    rows = [_db_row(db) for db in list_all(client.list_autonomous_databases, compartment_id=compartment_of(tenant_cfg))]
     rows.sort(key=lambda item: item["display_name"].lower())
     selected_database = None
     backups: list[dict[str, Any]] = []
@@ -209,24 +210,29 @@ def create_autonomous_database(
     )
     final_cpu = 1 if is_free_tier else cpu_core_count
     final_storage = 20 if is_free_tier else storage_size_gbs
+    details_kwargs: dict[str, Any] = {
+        "compartment_id": compartment_of(tenant_cfg),
+        "display_name": display_name,
+        "db_name": normalized["db_name"],
+        "admin_password": admin_password,
+        "db_workload": workload,
+        "db_version": db_version,
+        "license_model": "LICENSE_INCLUDED",
+        "cpu_core_count": final_cpu,
+        "data_storage_size_in_gbs": final_storage,
+        "is_free_tier": is_free_tier,
+        "whitelisted_ips": normalized["whitelisted_ips"],
+        "subnet_id": subnet_id or None,
+        "private_endpoint_label": normalized["private_endpoint_label"] or None,
+        "is_mtls_connection_required": is_mtls_connection_required,
+        "is_auto_scaling_enabled": False if is_free_tier else is_auto_scaling_enabled,
+    }
+    # OCI does not allow overriding character set fields for Always Free ADB.
+    if not is_free_tier:
+        details_kwargs["character_set"] = character_set
+        details_kwargs["ncharacter_set"] = ncharacter_set
     details = oci.database.models.CreateAutonomousDatabaseDetails(
-        compartment_id=tenant_cfg["tenant_id"],
-        display_name=display_name,
-        db_name=normalized["db_name"],
-        admin_password=admin_password,
-        db_workload=workload,
-        db_version=db_version,
-        license_model="LICENSE_INCLUDED",
-        cpu_core_count=final_cpu,
-        data_storage_size_in_gbs=final_storage,
-        is_free_tier=is_free_tier,
-        whitelisted_ips=normalized["whitelisted_ips"],
-        subnet_id=subnet_id or None,
-        private_endpoint_label=normalized["private_endpoint_label"] or None,
-        character_set=character_set,
-        ncharacter_set=ncharacter_set,
-        is_mtls_connection_required=is_mtls_connection_required,
-        is_auto_scaling_enabled=False if is_free_tier else is_auto_scaling_enabled,
+        **details_kwargs,
     )
     response = get_database_client(tenant_cfg).create_autonomous_database(details)
     data = response.data

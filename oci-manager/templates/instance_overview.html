@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 
 {% block title %}实例总览 | OCI 管理器{% endblock %}
-{% block hero_title %}实例总览{% endblock %}
-{% block hero_text %}跨租户汇总实例状态、IPv4/IPv6 和常用 SSH 命令。{% endblock %}
+{% block page_title %}实例总览{% endblock %}
+{% block page_desc %}跨租户汇总实例状态、IPv4/IPv6 和常用 SSH 命令。{% endblock %}
 
 {% block content %}
 <section class="metrics">
@@ -13,7 +13,6 @@
 
 <section class="section-head">
   <div>
-    <div class="eyebrow">筛选</div>
     <h2>实例</h2>
   </div>
   <form method="get" action="/instances" class="actions">
@@ -32,7 +31,6 @@
   <div class="table-card">
     <div class="section-head">
       <div>
-        <div class="eyebrow">{{ row.region }}</div>
         <h2>{{ row.tenant_name }}</h2>
         <div class="section-sub">实例 {{ row.count }} 台，运行中 {{ row.running }} 台。</div>
       </div>
@@ -49,7 +47,7 @@
           <tr>
             <td>{{ instance.name }}</td>
             <td>{{ instance.shape }}</td>
-            <td><span class="badge {{ 'badge-good' if instance.state == 'RUNNING' else 'badge-mid' }}">{{ instance.state }}</span></td>
+            <td><span class="badge {{ 'badge-good' if instance.state_kind == 'running' else 'badge-bad' if instance.state_kind == 'terminated' else 'badge-warn' if instance.state_kind == 'pending' else 'badge-mid' }}">{{ instance.state }}</span></td>
             <td>{{ instance.public_ip }}</td>
             <td><span class="small">{{ instance.ipv6 }}</span></td>
             {% set first_ipv6 = instance.ipv6.split(', ')[0] if instance.ipv6 != '-' else '-' %}
