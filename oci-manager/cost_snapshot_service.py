@@ -12,8 +12,12 @@ from typing import Any
 
 from db import connect
 from storage import load_tenants, now_iso
+from timeout_utils import run_with_timeout
 
 logger = logging.getLogger("scheduler")
+
+# 同 check_service：快照跑在唯一的调度线程里，单个租户卡住会拖垮整条调度。
+_SNAPSHOT_TIMEOUT_SECONDS = 40
 
 
 def snapshot_all_tenants() -> list[dict[str, Any]]:
@@ -28,7 +32,11 @@ def snapshot_all_tenants() -> list[dict[str, Any]]:
             continue
         try:
             # 快照永远针对根 compartment（免费额度是 tenancy 级账务概念）
-            ctx = free_tier_context({**tenant_cfg, "_compartment_id": None})
+            ctx = run_with_timeout(
+                _SNAPSHOT_TIMEOUT_SECONDS,
+                free_tier_context,
+                {**tenant_cfg, "_compartment_id": None},
+            )
             save_snapshot(tenant_name, ctx.get("free_items", []))
             results.append({"tenant_name": tenant_name, "items": len(ctx.get("free_items", []))})
         except Exception as exc:

@@ -33,6 +33,20 @@ TUNNELS: dict[str, Tunnel] = {}
 WEB_PROXIES: dict[str, WebProxy] = {}
 PRIVATE_KEY_PLACEHOLDERS = ("<private_key>", "<private-key>", "<privateKey>", "<privateKeyPath>")
 
+# 这些 ssh 选项能把"在本地执行命令/读任意配置文件"的能力交给连接串的编写者。
+# 注意 -o ProxyCommand 是 OCI 官方控制台连接串的正常组成部分，必须放行；
+# 这里拦的是与 VNC 隧道无关、纯粹用于扩大本地执行能力的选项。
+_FORBIDDEN_FLAGS = {"-F", "-J", "-W", "-E", "-R", "-D", "-S"}
+_FORBIDDEN_OPTION_KEYS = (
+    "localcommand",
+    "permitlocalcommand",
+    "proxyjump",
+    "include",
+    "forwardagent",
+    "dynamicforward",
+    "remoteforward",
+)
+
 
 def _free_port(preferred: int = 5900) -> int:
     for port in range(preferred, preferred + 100):
@@ -55,6 +69,12 @@ def _split_ssh_command(command: str) -> list[str]:
     return parts
 
 
+def _reject_unsafe_option(option: str) -> None:
+    key = option.split("=", 1)[0].strip().lower()
+    if key in _FORBIDDEN_OPTION_KEYS:
+        raise ValueError(f"VNC 连接串含不允许的 SSH 选项: {option}")
+
+
 def _prepare_command(vnc_connection_string: str, local_port: int, private_key_path: str) -> list[str]:
     parts = _split_ssh_command(vnc_connection_string)
     private_key_path = str(private_key_path)
@@ -64,6 +84,18 @@ def _prepare_command(vnc_connection_string: str, local_port: int, private_key_pa
     for index, part in enumerate(parts):
         if skip_next:
             skip_next = False
+            continue
+        if part in _FORBIDDEN_FLAGS:
+            raise ValueError(f"VNC 连接串含不允许的 SSH 参数: {part}")
+        if part == "-o":
+            option = str(parts[index + 1] if index + 1 < len(parts) else "")
+            _reject_unsafe_option(option)
+            prepared.extend(["-o", _replace_private_key_placeholder(option, private_key_path)])
+            skip_next = True
+            continue
+        if part.startswith("-o") and len(part) > 2:
+            _reject_unsafe_option(part[2:])
+            prepared.append("-o" + _replace_private_key_placeholder(part[2:], private_key_path))
             continue
         if part == "-i":
             prepared.extend(["-i", private_key_path])

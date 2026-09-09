@@ -11,6 +11,7 @@ SKIP_NAMES = {"backup.zip", "app.db", "app.db-wal", "app.db-shm"}
 SOURCE_DIR_RUNTIME_NAMES = {"auth.yaml", "tenants.yaml", "audit.log.jsonl", "launch_tasks.json", "checks.json", "settings.yaml"}
 MAX_RESTORE_FILE_SIZE = 100 * 1024 * 1024
 MAX_RESTORE_TOTAL_SIZE = 512 * 1024 * 1024
+_RESTORE_CHUNK = 64 * 1024
 
 
 def sqlite_backup_bytes() -> bytes | None:
@@ -61,22 +62,33 @@ def restore_backup_zip(payload: bytes) -> list[str]:
         for member in archive.infolist():
             if Path(member.filename).name in {"app.db-wal", "app.db-shm"}:
                 continue
+            # 先用 ZipInfo 里的声明大小做一次快速预检，真正的防线是下面的解压计数
             if member.file_size > MAX_RESTORE_FILE_SIZE:
                 raise ValueError(f"文件过大，已拒绝恢复: {member.filename}")
-            total_size += member.file_size
-            if total_size > MAX_RESTORE_TOTAL_SIZE:
-                raise ValueError("备份包总大小超过限制。")
             target = (DATA_DIR / member.filename).resolve()
             try:
                 target.relative_to(DATA_DIR)
             except ValueError:
-                continue
+                raise ValueError(f"备份含越界路径，已中止恢复: {member.filename}") from None
             if member.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
+            written = 0
+            # 流式解压：zip 元数据里的大小不可信，必须按真实写出的字节计数，
+            # 否则高压缩比的包（zip bomb）能一次性撑爆内存和磁盘。
             with archive.open(member) as src, target.open("wb") as dst:
-                dst.write(src.read())
+                while True:
+                    chunk = src.read(_RESTORE_CHUNK)
+                    if not chunk:
+                        break
+                    written += len(chunk)
+                    total_size += len(chunk)
+                    if written > MAX_RESTORE_FILE_SIZE or total_size > MAX_RESTORE_TOTAL_SIZE:
+                        dst.close()
+                        target.unlink(missing_ok=True)
+                        raise ValueError("备份解压后超过大小限制，已中止恢复。")
+                    dst.write(chunk)
             restored.append(member.filename)
     return restored
 

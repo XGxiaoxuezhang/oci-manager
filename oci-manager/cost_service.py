@@ -111,17 +111,28 @@ def check_budget_alerts(tenant_name: str, tenant_cfg: dict[str, Any]) -> list[di
     return fire_budget_alerts(tenant_name, ctx)
 
 
+def budget_alerts(ctx: dict[str, Any]) -> list[dict[str, Any]]:
+    """纯计算：返回越线的额度项，不外发任何通知。
+
+    页面要用这个。GET 请求必须是幂等的——以前 /cost 每次刷新都会真的发一条
+    webhook/ntfy，刷新十次就是十条一模一样的告警。
+    """
+    return [item for item in ctx.get("free_items", []) if item.get("status") == "over"]
+
+
 def fire_budget_alerts(tenant_name: str, ctx: dict[str, Any]) -> list[dict[str, Any]]:
-    """对已算好的额度上下文做告警判断，避免重复调用 OCI API。"""
-    alerts: list[dict[str, Any]] = []
-    for item in ctx.get("free_items", []):
-        if item["status"] == "over":
-            alerts.append(item)
-    if alerts:
-        lines = "、".join(f"{a['label']} {a['used']}/{a['limit']}{a['unit']}" for a in alerts)
-        notify(
-            "OCI 免费额度告警",
-            f"租户 {tenant_name} 有资源估算已超过常见 Always Free 额度：{lines}",
-            {"tenant_name": tenant_name, "alerts": alerts},
-        )
+    """对已算好的额度上下文做告警判断，并外发通知。
+
+    有副作用（发 webhook/ntfy），只能用在后台任务等有明确触发点的地方，
+    不要放进 GET 路由。
+    """
+    alerts = budget_alerts(ctx)
+    if not alerts:
+        return alerts
+    lines = "、".join(f"{a['label']} {a['used']}/{a['limit']}{a['unit']}" for a in alerts)
+    notify(
+        "OCI 免费额度告警",
+        f"租户 {tenant_name} 有资源估算已超过常见 Always Free 额度：{lines}",
+        {"tenant_name": tenant_name, "alerts": alerts},
+    )
     return alerts

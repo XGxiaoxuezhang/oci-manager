@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from flask import Blueprint, request
 
-from cost_service import cost_rules, fire_budget_alerts, free_tier_context
+from cost_service import budget_alerts, cost_rules, free_tier_context
 from cost_snapshot_service import trend_context
 from compartment_service import apply_session_compartment
 from oci_helpers import build_dashboard_cards, find_tenant_config
@@ -32,10 +32,8 @@ def cost_home():
                 context["load_error"] = str(exc)
             else:
                 context.update(free_ctx)
-                try:
-                    context["budget_alerts"] = fire_budget_alerts(selected_tenant, free_ctx)
-                except Exception:
-                    context["budget_alerts"] = []
+                # 只算不外发：GET 不应有外发副作用，告警由后台任务负责推送
+                context["budget_alerts"] = budget_alerts(free_ctx)
         # 近 30 天趋势（本地快照，无云端调用）
         try:
             context["trend"] = trend_context(selected_tenant)

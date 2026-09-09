@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from typing import Any
 
 from flask import Blueprint, flash, redirect, request, send_file, url_for
 
@@ -21,6 +22,21 @@ from tenant_routes import require_tenant
 from timeout_utils import run_with_timeout
 
 database_bp = Blueprint("database", __name__)
+
+
+def _server_side_display_name(tenant_cfg: dict[str, Any], database_id: str) -> str:
+    """从 OCI 读取数据库的真实名称，作为删除确认的基准。
+
+    返回值不含命中时为 ""，调用方据此拒绝删除而不是放行。
+    """
+    try:
+        context = run_with_timeout(10, list_autonomous_databases_context, tenant_cfg, database_id)
+    except Exception:
+        return ""
+    selected = context.get("selected_database") or {}
+    if isinstance(selected, dict):
+        return str(selected.get("display_name") or "")
+    return str(getattr(selected, "display_name", "") or "")
 
 
 @database_bp.route("/databases")
@@ -187,7 +203,8 @@ def databases_delete(tenant_name: str, database_id: str):
     if tenant_cfg is None:
         return redirect(url_for("tenant.index"))
     confirm_name = request.form.get("confirm_name", "").strip().upper()
-    expected_name = request.form.get("expected_name", "").strip().upper()
+    # 名称基准必须来自服务端读到的资源本身；表单里同名的 expected_name 由用户提交，不能作为校验依据
+    expected_name = _server_side_display_name(tenant_cfg, database_id).upper()
     if not expected_name or confirm_name != expected_name:
         flash("删除前请输入正确的数据库名确认。", "error")
         return redirect(url_for("database.databases_home", tenant_name=tenant_name, database_id=database_id))

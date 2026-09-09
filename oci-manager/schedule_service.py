@@ -13,11 +13,14 @@ from typing import Any
 from db import connect
 from notify import notify
 from storage import now_iso
+from timeout_utils import run_with_timeout
 
 logger = logging.getLogger("scheduler")
 
 _DAY_LABELS = {1: "一", 2: "二", 3: "三", 4: "四", 5: "五", 6: "六", 7: "日"}
 _ACTION_LABELS = {"start": "启动", "stop": "停止"}
+# 每条计划的等待上限。没有它，一个卡住的 OCI 调用会让整条调度线程永久阻塞。
+_SCHEDULE_TIMEOUT_SECONDS = 30
 
 
 def _norm_days(days: str) -> str:
@@ -116,8 +119,7 @@ def run_due_schedules(now: datetime | None = None) -> list[dict[str, Any]]:
     last_run_date 防止同一计划在同一天重复执行；
     时间窗口取当前分钟（tick 间隔 30 秒，每分钟最多命中一次）。
     """
-    from oci_helpers import find_tenant_config, get_compute_client
-    from settings import INSTANCE_ACTIONS
+    from oci_helpers import find_tenant_config
 
     now = now or datetime.now()
     today = now.strftime("%Y-%m-%d")
@@ -147,18 +149,10 @@ def run_due_schedules(now: datetime | None = None) -> list[dict[str, Any]]:
             continue
         action_label = _ACTION_LABELS.get(row["action"], row["action"])
         try:
-            client = get_compute_client(tenant_cfg)
-            instance = client.get_instance(row["instance_id"]).data
-            state = getattr(instance, "lifecycle_state", "")
-            # 已经是目标状态就别再操作：OCI 会对重复动作返回 409，
-            # 否则每天都会收到一条"执行失败"通知
-            already = (row["action"] == "start" and state == "RUNNING") or (
-                row["action"] == "stop" and state == "STOPPED"
-            )
-            if already:
-                logger.info("定时计划 %s：%s 已处于 %s，跳过", row["id"], row["instance_name"], state)
+            outcome = run_with_timeout(_SCHEDULE_TIMEOUT_SECONDS, _execute_schedule, tenant_cfg, row)
+            if outcome == "skipped":
+                logger.info("定时计划 %s：%s 已处于目标状态，跳过", row["id"], row["instance_name"])
                 continue
-            client.instance_action(row["instance_id"], INSTANCE_ACTIONS[row["action"]])
             executed.append({**row, "result": "ok"})
             notify(
                 "定时任务已执行",
@@ -172,6 +166,30 @@ def run_due_schedules(now: datetime | None = None) -> list[dict[str, Any]]:
                 f"[{row['tenant_name']}] {row['instance_name']} {action_label}失败: {exc}",
             )
     return executed
+
+
+def _execute_schedule(tenant_cfg: dict[str, Any], row: dict[str, Any]) -> str:
+    """在后台线程里执行单条计划，返回 ok / skipped。
+
+    会被 run_with_timeout 包裹：instance_action 是写操作，超时只代表"不再等待"，
+    底层调用仍可能随后完成。这里不会造成重复执行——调用方在开跑前就已经把
+    last_run_date 写成今天，同一天不会再命中这条计划。
+    """
+    from oci_helpers import get_compute_client
+    from settings import INSTANCE_ACTIONS
+
+    client = get_compute_client(tenant_cfg)
+    instance = client.get_instance(row["instance_id"]).data
+    state = getattr(instance, "lifecycle_state", "")
+    # 已经是目标状态就别再操作：OCI 会对重复动作返回 409，
+    # 否则每天都会收到一条"执行失败"通知
+    already = (row["action"] == "start" and state == "RUNNING") or (
+        row["action"] == "stop" and state == "STOPPED"
+    )
+    if already:
+        return "skipped"
+    client.instance_action(row["instance_id"], INSTANCE_ACTIONS[row["action"]])
+    return "ok"
 
 
 def instance_has_schedule(tenant_name: str, instance_id: str) -> bool:

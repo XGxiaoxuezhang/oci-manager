@@ -2,10 +2,28 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Iterator
 
 from settings import SQLITE_PATH, login_lock_seconds, login_max_failures, login_window_seconds
+
+
+def _utc_now() -> datetime:
+    """当前 UTC 时间的 naive datetime。
+
+    Python 3.12 起 datetime.utcnow() 已废弃（返回 naive UTC，语义容易混淆），
+    这里显式取带时区的 UTC 时间后再去掉 tzinfo，保证与既有数据格式一致。
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _utc_stamp() -> str:
+    """写进时间列的统一字符串格式。
+
+    这些列是字符串且按字典序比较（见 login_is_locked 的 time >= ?），
+    所以必须始终保持 `YYYY-MM-DDTHH:MM:SSZ` 这一种形态，不能混入时区偏移。
+    """
+    return _utc_now().isoformat(timespec="seconds") + "Z"
 
 
 @contextmanager
@@ -105,12 +123,12 @@ def record_login_attempt(remote_addr: str, username: str, success: bool) -> None
     with connect() as conn:
         conn.execute(
             "INSERT INTO login_attempts (time, remote_addr, username, success) VALUES (?, ?, ?, ?)",
-            (datetime.utcnow().isoformat(timespec="seconds") + "Z", remote_addr or "-", username or "-", 1 if success else 0),
+            (_utc_stamp(), remote_addr or "-", username or "-", 1 if success else 0),
         )
 
 
 def login_is_locked(remote_addr: str) -> bool:
-    since = datetime.utcnow() - timedelta(seconds=max(login_window_seconds(), login_lock_seconds()))
+    since = _utc_now() - timedelta(seconds=max(login_window_seconds(), login_lock_seconds()))
     with connect() as conn:
         row = conn.execute(
             """
@@ -124,7 +142,7 @@ def login_is_locked(remote_addr: str) -> bool:
 
 
 def cleanup_runtime_rows() -> None:
-    cutoff = datetime.utcnow() - timedelta(seconds=max(login_lock_seconds(), login_window_seconds()) * 2)
+    cutoff = _utc_now() - timedelta(seconds=max(login_lock_seconds(), login_window_seconds()) * 2)
     with connect() as conn:
         conn.execute("DELETE FROM login_attempts WHERE time < ?", (cutoff.isoformat(timespec="seconds") + "Z",))
         conn.execute(

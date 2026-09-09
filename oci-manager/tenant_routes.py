@@ -53,7 +53,7 @@ from schedule_service import (
     toggle_schedule,
 )
 from network_service import NSG_PROTOCOLS, add_nsg_rule, network_context, nsg_context, nsg_rules_context, remove_nsg_rule, update_nsg_rule
-from oci_helpers import find_tenant_config, get_compute_client
+from oci_helpers import find_tenant_config, get_block_client, get_compute_client, instance_console_connections
 from volume_service import (
     attach_volume,
     create_backup,
@@ -106,6 +106,35 @@ def looks_like_ocid(value: str, kind: str) -> bool:
 def looks_like_fingerprint(value: str) -> bool:
     parts = value.split(":")
     return len(parts) == 16 and all(len(part) == 2 and all(ch in "0123456789abcdefABCDEF" for ch in part) for part in parts)
+
+
+def server_side_vnc_connection_string(tenant_cfg: dict[str, Any], instance_id: str, connection_id: str) -> str:
+    """按连接 ID 从 OCI 取回真正的 VNC 连接串。
+
+    这条连接串最终会被拆成参数交给本地 ssh 进程执行。如果直接采用表单里的值，
+    登录用户就能塞 `-o ProxyCommand=...` 之类的参数让服务端执行任意命令。
+    所以这里只允许客户端提交"选哪个连接"（ID），内容一律以 OCI 返回为准。
+    """
+    for row in instance_console_connections(tenant_cfg, instance_id):
+        if row.get("id") == connection_id:
+            return str(row.get("vnc_connection_string") or "")
+    raise ValueError("未找到对应的控制台连接，它可能已过期，请重新创建。")
+
+
+def server_side_volume_name(tenant_cfg: dict[str, Any], volume_id: str, kind: str = "volume") -> str:
+    """从 OCI 读取卷 / 引导卷的真实名称，作为删除确认的基准。
+
+    表单里随请求一起提交的 volume_name 由客户端提供，伪造成本为零，
+    用它做"确认一致"等于没有校验。这里以服务端读到的资源名为准；
+    读取失败返回空串，调用方据此拒绝删除。
+    """
+    try:
+        block = get_block_client(tenant_cfg)
+        if kind == "boot":
+            return str(getattr(block.get_boot_volume(volume_id).data, "display_name", "") or "")
+        return str(getattr(block.get_volume(volume_id).data, "display_name", "") or "")
+    except Exception:
+        return ""
 
 
 def _dashboard_context() -> dict[str, Any]:
@@ -624,7 +653,8 @@ def delete_volume_view(tenant_name: str, volume_id: str):
     if tenant_cfg is None:
         return redirect(url_for("tenant.index"))
     try:
-        if request.form.get("confirm_name", "").strip() != request.form.get("volume_name", "").strip():
+        expected_name = server_side_volume_name(tenant_cfg, volume_id, "volume")
+        if not expected_name or request.form.get("confirm_name", "").strip() != expected_name:
             raise ValueError("名称校验未通过，已取消删除。")
         delete_volume(tenant_cfg, volume_id)
         flash("卷已删除。", "success")
@@ -668,7 +698,8 @@ def delete_boot_volume_view(tenant_name: str, boot_volume_id: str):
     if tenant_cfg is None:
         return redirect(url_for("tenant.index"))
     try:
-        if request.form.get("confirm_name", "").strip() != request.form.get("volume_name", "").strip():
+        expected_name = server_side_volume_name(tenant_cfg, boot_volume_id, "boot")
+        if not expected_name or request.form.get("confirm_name", "").strip() != expected_name:
             raise ValueError("名称校验未通过，已取消删除。")
         delete_boot_volume(tenant_cfg, boot_volume_id)
         flash("引导卷已删除。", "success")
@@ -866,11 +897,15 @@ def create_console_connection(tenant_name: str, instance_id: str):
 
 @tenant_bp.route("/tenant/<tenant_name>/instance/<instance_id>/rescue/vnc/start", methods=["POST"])
 def start_vnc_tunnel(tenant_name: str, instance_id: str):
-    if require_tenant(tenant_name) is None:
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
         return redirect(url_for("tenant.index"))
     connection_id = request.form.get("connection_id", "").strip()
-    vnc_connection_string = request.form.get("vnc_connection_string", "").strip()
-    if not connection_id or not vnc_connection_string:
+    if not connection_id:
+        flash("请选择要使用的控制台连接。", "error")
+        return redirect(url_for("tenant.rescue_center", tenant_name=tenant_name, instance_id=instance_id))
+    vnc_connection_string = server_side_vnc_connection_string(tenant_cfg, instance_id, connection_id)
+    if not vnc_connection_string:
         flash("没有可用的 VNC 连接串。", "error")
         return redirect(url_for("tenant.rescue_center", tenant_name=tenant_name, instance_id=instance_id))
     try:
@@ -884,11 +919,15 @@ def start_vnc_tunnel(tenant_name: str, instance_id: str):
 
 @tenant_bp.route("/tenant/<tenant_name>/instance/<instance_id>/rescue/novnc/start", methods=["POST"])
 def start_novnc(tenant_name: str, instance_id: str):
-    if require_tenant(tenant_name) is None:
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
         return redirect(url_for("tenant.index"))
     connection_id = request.form.get("connection_id", "").strip()
-    vnc_connection_string = request.form.get("vnc_connection_string", "").strip()
-    if not connection_id or not vnc_connection_string:
+    if not connection_id:
+        flash("请选择要使用的控制台连接。", "error")
+        return redirect(url_for("tenant.rescue_center", tenant_name=tenant_name, instance_id=instance_id))
+    vnc_connection_string = server_side_vnc_connection_string(tenant_cfg, instance_id, connection_id)
+    if not vnc_connection_string:
         flash("没有可用的 VNC 连接串。", "error")
         return redirect(url_for("tenant.rescue_center", tenant_name=tenant_name, instance_id=instance_id))
     try:

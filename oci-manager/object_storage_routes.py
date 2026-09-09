@@ -133,6 +133,13 @@ def object_storage_delete_bucket(tenant_name: str):
     if confirm_name != bucket_name:
         flash("确认名称不匹配，未删除 Bucket。", "error")
         return redirect(url_for("object_storage.object_storage_home", tenant_name=tenant_name, bucket=bucket_name or None))
+    try:
+        delete_bucket(tenant_cfg, bucket_name)
+        flash(f"Bucket {bucket_name} 已删除。", "success")
+        return redirect(url_for("object_storage.object_storage_home", tenant_name=tenant_name))
+    except Exception as exc:
+        flash(f"删除 Bucket 失败: {exc}", "error")
+        return redirect(url_for("object_storage.object_storage_home", tenant_name=tenant_name, bucket=bucket_name or None))
 
 
 @object_storage_bp.route("/tenant/<tenant_name>/object-storage/bucket/settings", methods=["POST"])
@@ -154,13 +161,6 @@ def object_storage_bucket_settings(tenant_name: str):
     except Exception as exc:
         flash(f"更新 Bucket 设置失败: {exc}", "error")
     return redirect(url_for("object_storage.object_storage_home", tenant_name=tenant_name, bucket=bucket_name or None))
-    try:
-        delete_bucket(tenant_cfg, bucket_name)
-        flash(f"Bucket {bucket_name} 已删除。", "success")
-        return redirect(url_for("object_storage.object_storage_home", tenant_name=tenant_name))
-    except Exception as exc:
-        flash(f"删除 Bucket 失败: {exc}", "error")
-        return redirect(url_for("object_storage.object_storage_home", tenant_name=tenant_name, bucket=bucket_name or None))
 
 
 @object_storage_bp.route("/tenant/<tenant_name>/object-storage/object", methods=["POST"])

@@ -129,6 +129,11 @@ OCI_READ_TIMEOUT = env_int("OCI_MANAGER_OCI_READ_TIMEOUT", 30)
 MAX_UPLOAD_MB = max(1, env_int("OCI_MANAGER_MAX_UPLOAD_MB", 100))
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 
+# 下载同样要设上限：对象内容会被整体读进内存再交给响应，
+# 不设限的话一个几十 GB 的对象就能把进程打爆。
+MAX_DOWNLOAD_MB = max(1, env_int("OCI_MANAGER_MAX_DOWNLOAD_MB", 200))
+MAX_DOWNLOAD_BYTES = MAX_DOWNLOAD_MB * 1024 * 1024
+
 
 def secret_key() -> str:
     """会话签名密钥。

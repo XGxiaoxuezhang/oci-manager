@@ -7,6 +7,7 @@ from typing import Any
 import oci
 
 from oci_helpers import build_config, client_kwargs, list_all
+from settings import MAX_DOWNLOAD_BYTES, MAX_DOWNLOAD_MB
 from storage import fmt_dt
 from compartment_scope import compartment_of
 
@@ -159,6 +160,14 @@ def download_object(tenant_cfg: dict[str, Any], bucket_name: str, object_name: s
     object_name = validate_object_name(object_name)
     client = get_object_storage_client(tenant_cfg)
     namespace_name = client.get_namespace().data
+    # 先问大小再决定是否下载：对象内容会整体进内存，不设门槛的话
+    # 一个几十 GB 的对象就能把进程打爆。
+    head = client.head_object(namespace_name=namespace_name, bucket_name=bucket_name, object_name=object_name)
+    size = int(head.headers.get("content-length", "0") or "0")
+    if size > MAX_DOWNLOAD_BYTES:
+        raise ValueError(
+            f"对象过大（{size / 1024 / 1024:.1f} MB），超过 {MAX_DOWNLOAD_MB} MB 的下载上限，请改用 OCI CLI 或 rclone 取回。"
+        )
     response = client.get_object(namespace_name=namespace_name, bucket_name=bucket_name, object_name=object_name)
     return response.data.content, response.headers.get("content-type", "application/octet-stream")
 
