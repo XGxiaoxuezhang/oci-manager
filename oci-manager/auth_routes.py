@@ -29,6 +29,14 @@ def require_login():
         return None
     if not session.get("authenticated"):
         return redirect(url_for("auth.login", next=request.path))
+    # 首次部署还没改掉初始密码时，只允许改密和登出
+    if session.get("must_change_password") and request.endpoint not in {
+        "auth.account",
+        "auth.change_password",
+        "auth.logout",
+    }:
+        flash("首次部署请先修改初始登录密码。", "error")
+        return redirect(url_for("auth.account"))
     return None
 
 
@@ -53,6 +61,11 @@ def login():
             session.permanent = True
             session["authenticated"] = True
             session["username"] = username
+            if settings.get("must_change_password"):
+                session["must_change_password"] = True
+                flash("首次部署请先修改初始登录密码。", "error")
+                return redirect(url_for("auth.account"))
+            session.pop("must_change_password", None)
             return redirect(safe_next_url(request.args.get("next")))
         record_login_attempt(remote_addr, username, False)
         flash(f"用户名或密码错误。连续失败 {login_max_failures()} 次会临时锁定。", "error")
@@ -86,7 +99,9 @@ def change_password():
         flash("两次输入的新密码不一致。", "error")
         return redirect(url_for("auth.account"))
     settings["password_hash"] = generate_password_hash(new_password)
+    settings["must_change_password"] = False
     settings["updated"] = now_iso()
     save_auth_settings(settings)
+    session.pop("must_change_password", None)
     flash("登录密码已更新。", "success")
     return redirect(url_for("auth.account"))

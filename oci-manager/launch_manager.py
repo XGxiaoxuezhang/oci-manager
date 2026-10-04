@@ -64,35 +64,39 @@ def save_launch_tasks() -> None:
     早期版本在写库失败时回退写 JSON，导致同一份数据有两个可能的来源、
     读的时候又要按优先级猜。现在 JSON 回退已移除：写库失败就是失败，
     宁可在页面上暴露，也不要留下两份会互相覆盖的真值。
+
+    整个流程（取快照 + 写库）都持 TASK_LOCK：TASK_LOCK 是 RLock，update_task /
+    append_task_log 持锁调用这里也不会死锁；锁内写库保证两个线程的落盘顺序
+    与内存修改顺序一致，否则快照乱序会让重启后恢复出旧状态。
     """
     with TASK_LOCK:
         payload = {task_id: task for task_id, task in LAUNCH_TASKS.items()}
-    try:
-        with connect() as conn:
-            for task_id, task in payload.items():
-                conn.execute(
-                    """
-                    INSERT INTO launch_tasks (id, tenant_name, status, created_at, updated_at, task_json)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET
-                        tenant_name=excluded.tenant_name,
-                        status=excluded.status,
-                        created_at=excluded.created_at,
-                        updated_at=excluded.updated_at,
-                        task_json=excluded.task_json
-                    """,
-                    (
-                        task_id,
-                        task.get("tenant_name", "-"),
-                        task.get("status", "-"),
-                        task.get("created_at", ""),
-                        task.get("updated_at", ""),
-                        json.dumps(task, ensure_ascii=False, separators=(",", ":")),
-                    ),
-                )
-    except Exception as exc:
-        # 不静默：任务日志是排查抢实例失败的唯一线索，丢了必须让人看见
-        print(f"[launch_manager] 保存任务失败: {exc}", flush=True)
+        try:
+            with connect() as conn:
+                for task_id, task in payload.items():
+                    conn.execute(
+                        """
+                        INSERT INTO launch_tasks (id, tenant_name, status, created_at, updated_at, task_json)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(id) DO UPDATE SET
+                            tenant_name=excluded.tenant_name,
+                            status=excluded.status,
+                            created_at=excluded.created_at,
+                            updated_at=excluded.updated_at,
+                            task_json=excluded.task_json
+                        """,
+                        (
+                            task_id,
+                            task.get("tenant_name", "-"),
+                            task.get("status", "-"),
+                            task.get("created_at", ""),
+                            task.get("updated_at", ""),
+                            json.dumps(task, ensure_ascii=False, separators=(",", ":")),
+                        ),
+                    )
+        except Exception as exc:
+            # 不静默：任务日志是排查抢实例失败的唯一线索，丢了必须让人看见
+            print(f"[launch_manager] 保存任务失败: {exc}", flush=True)
 
 
 def is_retryable_launch_error(exc: Exception) -> bool:

@@ -49,7 +49,7 @@
           <td>
             <div class="row-actions">
               {% if volume.attached %}
-              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/volume-attachment/{{ volume.attached.attachment_id }}/detach" onsubmit="return confirm('确认从 {{ volume.attached.instance_name }} 卸载该卷吗？');">
+              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/volume-attachment/{{ volume.attached.attachment_id }}/detach" data-confirm="确认从 {{ volume.attached.instance_name }} 卸载该卷吗？">
                 <button class="btn btn-secondary" type="submit">卸载</button>
               </form>
               {% else %}
@@ -220,7 +220,7 @@
                 </div>
               </details>
 
-              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/volume-backup/{{ backup.id }}/delete" onsubmit="return confirm('确认删除备份 {{ backup.name }} 吗？此操作不可撤销。');">
+              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/volume-backup/{{ backup.id }}/delete" data-confirm="确认删除备份 {{ backup.name }} 吗？此操作不可撤销。">
                 <button class="btn btn-secondary" type="submit">删除</button>
               </form>
             </div>

@@ -80,7 +80,7 @@
               {% if 'start' in instance.actions %}
               <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/start"><button class="btn btn-secondary" type="submit">启动</button></form>
               {% elif 'softstop' in instance.actions %}
-              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/softstop" onsubmit="return confirm('确认停止实例 {{ instance.name }} 吗？');"><button class="btn btn-secondary" type="submit">停止</button></form>
+              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/softstop" data-confirm="确认停止实例 {{ instance.name }} 吗？"><button class="btn btn-secondary" type="submit">停止</button></form>
               {% elif instance.state_kind == 'pending' %}
               <span class="small">处理中…</span>
               {% endif %}
@@ -93,13 +93,13 @@
                   <form method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/start"><button class="menu-item" type="submit">启动</button></form>
                   {% endif %}
                   {% if 'softstop' in instance.actions %}
-                  <form method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/softstop" onsubmit="return confirm('确认停止实例 {{ instance.name }} 吗？');"><button class="menu-item" type="submit">软停</button></form>
+                  <form method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/softstop" data-confirm="确认停止实例 {{ instance.name }} 吗？"><button class="menu-item" type="submit">软停</button></form>
                   {% endif %}
                   {% if 'softreset' in instance.actions %}
-                  <form method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/softreset" onsubmit="return confirm('确认软重启实例 {{ instance.name }} 吗？');"><button class="menu-item" type="submit">软重启</button></form>
+                  <form method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/softreset" data-confirm="确认软重启实例 {{ instance.name }} 吗？"><button class="menu-item" type="submit">软重启</button></form>
                   {% endif %}
                   {% if 'reset' in instance.actions %}
-                  <form method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/reset" onsubmit="return confirm('确认强制重启实例 {{ instance.name }} 吗？');"><button class="menu-item" type="submit">强制重启</button></form>
+                  <form method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/reset" data-confirm="确认强制重启实例 {{ instance.name }} 吗？"><button class="menu-item" type="submit">强制重启</button></form>
                   {% endif %}
 
                   {% if instance.state_kind != 'terminated' %}
@@ -190,7 +190,7 @@
             <form class="inline" method="post" action="/tenant/{{ tenant_name }}/schedules/{{ s.id }}/toggle">
               <button class="btn btn-ghost" type="submit">{{ '停用' if s.enabled else '启用' }}</button>
             </form>
-            <form class="inline" method="post" action="/tenant/{{ tenant_name }}/schedules/{{ s.id }}/delete" onsubmit="return confirm('确认删除该定时计划吗？');">
+            <form class="inline" method="post" action="/tenant/{{ tenant_name }}/schedules/{{ s.id }}/delete" data-confirm="确认删除该定时计划吗？">
               <button class="btn btn-ghost" type="submit">删除</button>
             </form>
           </td>
@@ -212,7 +212,7 @@
     </div>
     <div class="actions">
       <button class="btn btn-secondary" type="button" data-dialog-open="create-instance">新建任务</button>
-      <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instances/tasks/clear" onsubmit="return confirm('确认清理当前租户已结束任务吗？');">
+      <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instances/tasks/clear" data-confirm="确认清理当前租户已结束任务吗？">
         <button class="btn btn-ghost" type="submit">清理已结束</button>
       </form>
     </div>
@@ -227,7 +227,7 @@
           <td>{{ task.preset }}</td>
           <td><span class="badge {{ 'badge-good' if task.status == 'success' else 'badge-bad' if task.status in ['failed', 'cancelled', 'interrupted'] else 'badge-mid' }}">{{ task.status }}</span></td>
           <td>{{ task.current_attempt }}</td>
-          <td>{% if task.status in ['queued', 'running'] %}<form class="inline" method="post" action="/tenant/{{ tenant_name }}/instances/task/{{ task.id }}/cancel" onsubmit="return confirm('确认取消任务 {{ task.id }} 吗？');"><button class="btn btn-danger" type="submit">取消</button></form>{% else %}-{% endif %}</td>
+          <td>{% if task.status in ['queued', 'running'] %}<form class="inline" method="post" action="/tenant/{{ tenant_name }}/instances/task/{{ task.id }}/cancel" data-confirm="确认取消任务 {{ task.id }} 吗？"><button class="btn btn-danger" type="submit">取消</button></form>{% else %}-{% endif %}</td>
         </tr>
         {% if task.logs %}
         <tr>

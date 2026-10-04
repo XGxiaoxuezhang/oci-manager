@@ -44,7 +44,7 @@
     旧密钥会保留在 OCI 作为回退，确认新密钥可用后在下方删除。
     {% if local_fingerprint %}本地私钥反算指纹：<code>{{ local_fingerprint }}</code>{% endif %}
   </p>
-  <form method="post" action="/tenant/{{ tenant_name }}/user/rotate-key" class="grid grid-3" onsubmit="return confirm('轮换后本平台会立刻改用新密钥，确定继续吗？');">
+  <form method="post" action="/tenant/{{ tenant_name }}/user/rotate-key" class="grid grid-3" data-confirm="轮换后本平台会立刻改用新密钥，确定继续吗？">
     <div class="field"><label>输入 ROTATE 以确认</label><input name="confirm_text" placeholder="ROTATE" required></div>
     <div style="align-self:end;"><button class="btn btn-primary" type="submit">轮换密钥</button></div>
   </form>
@@ -80,7 +80,7 @@
           </td>
           <td>{{ user.created }}</td>
           <td>
-            <form class="inline" method="post" action="/tenant/{{ tenant_name }}/user/reset_mfa/{{ user.id }}" onsubmit="return confirm('确定重置该用户的 MFA 吗？');">
+            <form class="inline" method="post" action="/tenant/{{ tenant_name }}/user/reset_mfa/{{ user.id }}" data-confirm="确定重置该用户的 MFA 吗？">
               <button class="btn btn-warning" type="submit">重置 MFA</button>
             </form>
           </td>
@@ -110,7 +110,7 @@
               {% if key.fingerprint == user.configured_fingerprint %}
               <span class="small">使用中</span>
               {% else %}
-              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/user/{{ user.id }}/delete-key/{{ key.fingerprint }}" onsubmit="return confirm('确定删除指纹 {{ key.fingerprint }} 的 API Key 吗？此操作不可撤销。');">
+              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/user/{{ user.id }}/delete-key/{{ key.fingerprint }}" data-confirm="确定删除指纹 {{ key.fingerprint }} 的 API Key 吗？此操作不可撤销。">
                 <button class="btn btn-danger" type="submit">删除</button>
               </form>
               {% endif %}

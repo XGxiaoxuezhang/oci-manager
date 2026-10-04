@@ -145,7 +145,7 @@
             <div class="actions">
               <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/databases?database_id={{ db.id }}">详情</a>
               <form class="inline" method="post" action="/tenant/{{ tenant_name }}/databases/{{ db.id }}/start"><button class="btn btn-success" type="submit">启动</button></form>
-              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/databases/{{ db.id }}/stop" onsubmit="return confirm('确认停止数据库 {{ db.name }} 吗？');"><button class="btn btn-warning" type="submit">停止</button></form>
+              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/databases/{{ db.id }}/stop" data-confirm="确认停止数据库 {{ db.name }} 吗？"><button class="btn btn-warning" type="submit">停止</button></form>
             </div>
           </td>
         </tr>

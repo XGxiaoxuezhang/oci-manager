@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shlex
 import socket
 import subprocess
@@ -41,11 +42,24 @@ _FORBIDDEN_OPTION_KEYS = (
     "localcommand",
     "permitlocalcommand",
     "proxyjump",
+    "proxyusefdpass",
     "include",
     "forwardagent",
+    "forwardx11",
+    "forwardx11trusted",
     "dynamicforward",
     "remoteforward",
+    "remotecommand",
+    "permitremoteopen",
+    "permitlisten",
+    "controlmaster",
+    "controlpath",
+    "controlpersist",
 )
+
+# ssh -o 同时接受 key=value 和 ssh_config 的空格语法（-o "LocalCommand xxx"），
+# 所以不能按 "=" 切分，必须按"开头连续字母数字"提取选项名。
+_SSH_OPTION_KEY_RE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9]*)")
 
 
 def _free_port(preferred: int = 5900) -> int:
@@ -62,16 +76,17 @@ def _split_ssh_command(command: str) -> list[str]:
     parts = shlex.split(normalized, posix=True)
     if not parts:
         raise ValueError("VNC 连接串为空。")
-    if parts[0].lower().endswith("ssh.exe"):
-        return parts
-    if parts[0].lower() != "ssh":
-        raise ValueError("VNC 连接串不是 ssh 命令。")
+    # 只放行 PATH 里的 ssh，禁止任何带路径分隔符的可执行文件（含 UNC 共享路径）
+    if "/" in parts[0] or "\\" in parts[0] or parts[0].lower() not in {"ssh", "ssh.exe"}:
+        raise ValueError("VNC 连接串必须以 ssh 命令开头，不能指定可执行文件路径。")
     return parts
 
 
 def _reject_unsafe_option(option: str) -> None:
-    key = option.split("=", 1)[0].strip().lower()
-    if key in _FORBIDDEN_OPTION_KEYS:
+    match = _SSH_OPTION_KEY_RE.match(option)
+    if not match:
+        raise ValueError(f"VNC 连接串含无法识别的 SSH 选项: {option}")
+    if match.group(1).lower() in _FORBIDDEN_OPTION_KEYS:
         raise ValueError(f"VNC 连接串含不允许的 SSH 选项: {option}")
 
 

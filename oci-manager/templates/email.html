@@ -191,7 +191,7 @@
           <td><span class="code">{{ sender.email_ip_pool_id }}</span></td>
           <td>{{ sender.created }}</td>
           <td>
-            <form class="inline" method="post" action="/tenant/{{ tenant_name }}/email/senders/{{ sender.id }}/delete" onsubmit="return confirm('确认删除发件人 {{ sender.email_address }} 吗？');">
+            <form class="inline" method="post" action="/tenant/{{ tenant_name }}/email/senders/{{ sender.id }}/delete" data-confirm="确认删除发件人 {{ sender.email_address }} 吗？">
               <button class="btn btn-danger" type="submit">删除</button>
             </form>
           </td>

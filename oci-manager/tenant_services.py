@@ -31,7 +31,7 @@ from oci_helpers import (
     vnic_ipv6_addresses,
 )
 from settings import CONSOLE_KEY_DIR, TENANT_DIR
-from storage import fmt_dt, load_tenants, now_iso, save_tenants
+from storage import fmt_dt, load_tenants, now_iso, restrict_file_permissions, save_tenants
 
 USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._@+-]{1,126}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -148,10 +148,19 @@ def create_tenant_record(
     fingerprint: str,
     key_file: Any,
 ) -> None:
-    tenant_path = TENANT_DIR / tenant_name
+    tenant_root = TENANT_DIR.resolve()
+    tenant_path = (TENANT_DIR / tenant_name).resolve()
+    # 双保险：normalize_tenant_name 已挡掉 "."/".."，这里防历史数据或新调用点绕过
+    try:
+        tenant_path.relative_to(tenant_root)
+    except ValueError as exc:
+        raise ValueError("租户名称不合法。") from exc
+    if tenant_path == tenant_root:
+        raise ValueError("租户名称不合法。")
     tenant_path.mkdir(parents=True, exist_ok=True)
     key_path = tenant_path / "key.pem"
     key_file.save(key_path)
+    restrict_file_permissions(key_path)
     if not key_path.exists() or key_path.stat().st_size == 0:
         raise ValueError("私钥文件为空。")
     tenants[tenant_name] = {
@@ -165,10 +174,17 @@ def create_tenant_record(
 
 
 def remove_tenant_record(tenants: dict[str, dict[str, Any]], tenant_name: str) -> None:
-    tenants.pop(tenant_name)
-    tenant_dir = TENANT_DIR / tenant_name
-    if tenant_dir.exists() and tenant_dir.parent == TENANT_DIR:
-        shutil.rmtree(tenant_dir, ignore_errors=True)
+    tenants.pop(tenant_name, None)
+    tenant_root = TENANT_DIR.resolve()
+    try:
+        tenant_dir = (TENANT_DIR / tenant_name).resolve()
+        # pathlib 不解析 ".."，词法 parent 判断挡不住；必须 resolve 后确认目标确实在租户目录内
+        tenant_dir.relative_to(tenant_root)
+    except (OSError, ValueError):
+        return
+    if tenant_dir == tenant_root or not tenant_dir.exists():
+        return
+    shutil.rmtree(tenant_dir, ignore_errors=True)
 
 
 def list_user_rows(tenant_cfg: dict[str, Any]) -> list[dict[str, Any]]:
@@ -323,11 +339,9 @@ def rotate_api_key(tenant_cfg: dict[str, Any]) -> dict[str, Any]:
     if key_path.exists():
         backup_path = key_path.with_name(key_path.name + ".bak")
         shutil.copy2(key_path, backup_path)
+        restrict_file_permissions(backup_path)
     key_path.write_bytes(private_bytes)
-    try:
-        os.chmod(key_path, 0o600)
-    except OSError:
-        pass
+    restrict_file_permissions(key_path)
 
     tenants = load_tenants()
     if tenant_name in tenants:
@@ -697,6 +711,7 @@ def ensure_console_key_pair() -> tuple[str, str]:
         format=serialization.PublicFormat.OpenSSH,
     )
     private_path.write_bytes(private_bytes)
+    restrict_file_permissions(private_path)
     public_path.write_bytes(public_bytes + b"\n")
     return private_bytes.decode("utf-8").strip(), public_bytes.decode("utf-8").strip()
 

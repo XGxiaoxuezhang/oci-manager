@@ -167,7 +167,7 @@ rclone mount {{ mount_helper.rclone_remote }}:{{ mount_helper.bucket }} X:\objec
             <div class="actions">
               <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/object-storage/object/preview?bucket={{ selected_bucket|urlencode }}&name={{ obj.name|urlencode }}">预览</a>
               <a class="btn btn-ghost" href="/tenant/{{ tenant_name }}/object-storage/object/download?bucket={{ selected_bucket|urlencode }}&name={{ obj.name|urlencode }}">下载</a>
-              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/object-storage/object/delete" onsubmit="return confirm('确认删除对象 {{ obj.name }} 吗？');">
+              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/object-storage/object/delete" data-confirm="确认删除对象 {{ obj.name }} 吗？">
                 <input type="hidden" name="bucket_name" value="{{ selected_bucket }}">
                 <input type="hidden" name="object_name" value="{{ obj.name }}">
                 <button class="btn btn-danger" type="submit">删除</button>

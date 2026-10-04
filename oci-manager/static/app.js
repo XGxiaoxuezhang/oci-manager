@@ -67,6 +67,15 @@
     });
   });
 
+  // 确认文案经 data-confirm 属性传入（纯文本上下文），不要拼进内联 onsubmit 的 JS 字符串
+  document.querySelectorAll("form[data-confirm]").forEach(function (form) {
+    form.addEventListener("submit", function (event) {
+      if (!window.confirm(form.getAttribute("data-confirm") || "")) {
+        event.preventDefault();
+      }
+    });
+  });
+
   var autoRefresh = document.querySelector("[data-auto-refresh]");
   if (autoRefresh) {
     var seconds = Number(autoRefresh.getAttribute("data-auto-refresh")) || 15;
