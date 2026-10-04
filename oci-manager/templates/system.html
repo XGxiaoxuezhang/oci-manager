@@ -18,6 +18,8 @@
             <td>{{ check.value }} <button class="btn btn-ghost" type="button" data-copy="{{ check.value }}">复制</button></td>
             <td><span class="badge {{ 'badge-good' if check.status == 'ok' else 'badge-bad' }}">{{ check.status }}</span></td>
           </tr>
+          {% else %}
+          <tr><td colspan="3"><div class="empty">没有可检查的运行环境项。</div></td></tr>
           {% endfor %}
         </tbody>
       </table>

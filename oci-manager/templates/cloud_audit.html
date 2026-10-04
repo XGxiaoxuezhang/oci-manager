@@ -70,7 +70,7 @@
           <td>{{ item.principal }}</td>
           <td><span class="small">{{ item.credential }}</span></td>
           <td>{{ item.ip }}</td>
-          <td><span class="small">{{ item.resource }}</span></td>
+          <td><span class="small" title="{{ item.resource }}">{{ (item.resource or "-")[:38] }}{% if item.resource and item.resource|length > 38 %}…{% endif %}</span></td>
           <td>{{ item.status }}</td>
         </tr>
         {% else %}

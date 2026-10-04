@@ -17,11 +17,11 @@
         {% for item in security_lists %}
         <tr>
           <td>{{ item.name }}</td>
-          <td>{{ item.vcn_id }}</td>
+          <td class="small" title="{{ item.vcn_id }}">{{ item.vcn_id[:38] }}…</td>
           <td>{{ item.ingress_count }}</td>
           <td>{{ item.egress_count }}</td>
           <td>{{ item.created }}</td>
-          <td><a class="btn btn-primary" href="/tenant/{{ tenant_name }}/security-list/{{ item.id }}/rules">管理规则</a></td>
+          <td><a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/security-list/{{ item.id }}/rules">管理规则</a></td>
         </tr>
         {% else %}
         <tr><td colspan="6"><div class="empty">没有安全列表。</div></td></tr>

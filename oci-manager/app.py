@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import secrets
+from datetime import timedelta
 
 from flask import Flask, abort, flash, redirect, request, session, url_for
 
@@ -26,6 +27,7 @@ from settings import (
     session_lifetime,
 )
 from settings_routes import settings_bp
+from storage import fmt_dt
 from system_routes import system_bp
 from storage import ensure_auth_settings
 from tenant_routes import tenant_bp
@@ -71,8 +73,12 @@ def create_app() -> Flask:
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=session_cookie_secure(),
+        # 静态资源（含 noVNC vendor 约 800KB）默认每次导航都 revalidate，给个合理缓存期；
+        # Flask 的 url_for('static') 自带基于文件 mtime 的 v= 版本参数，更新代码不会拿旧缓存
+        SEND_FILE_MAX_AGE_DEFAULT=timedelta(days=7),
     )
     app.jinja_env.filters["format_bytes"] = format_bytes
+    app.jinja_env.filters["fmt_dt"] = fmt_dt
     app.register_blueprint(auth_bp)
     app.register_blueprint(tenant_bp)
     app.register_blueprint(object_storage_bp)

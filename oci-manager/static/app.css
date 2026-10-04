@@ -322,7 +322,7 @@ h1, h2, h3 { margin: 0; }
 .meta-row span:last-child { text-align: right; word-break: break-all; color: var(--text); }
 .tenant-actions {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
   gap: 6px;
   margin-top: 4px;
 }
@@ -333,6 +333,7 @@ h1, h2, h3 { margin: 0; }
 /* ===== 表单 ===== */
 .field { display: grid; gap: 6px; margin-bottom: 14px; }
 .field label { font-size: 13px; font-weight: 500; }
+.field:has(input[required], select[required], textarea[required]) > label::after { content: " *"; color: var(--bad); }
 .field input, .field select, .field textarea {
   width: 100%;
   padding: 8px 11px;
@@ -636,7 +637,7 @@ pre {
     padding: 0 0 2px;
   }
   .nav-group { margin-bottom: 0; grid-auto-flow: column; gap: 4px; }
-  .nav-group-title { display: none; }
+  .nav-group-title { padding: 0 6px; align-self: center; }
   .nav-item { white-space: nowrap; }
   .nav-item.active::before { display: none; }
   .sidebar-foot { flex-direction: row; margin-top: 10px; padding-top: 10px; }

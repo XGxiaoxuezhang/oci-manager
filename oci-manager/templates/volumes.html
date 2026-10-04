@@ -99,7 +99,7 @@
                       <span>输入卷名 <strong>{{ volume.name }}</strong> 以确认</span>
                       <input type="text" name="confirm_name" placeholder="{{ volume.name }}">
                     </label>
-                    <button class="btn btn-primary" type="submit">确认删除</button>
+                    <button class="btn btn-danger" type="submit">确认删除</button>
                   </form>
                 </div>
               </details>
@@ -161,7 +161,7 @@
                       <span>输入名称 <strong>{{ volume.name }}</strong> 以确认</span>
                       <input type="text" name="confirm_name" placeholder="{{ volume.name }}">
                     </label>
-                    <button class="btn btn-primary" type="submit">确认删除</button>
+                    <button class="btn btn-danger" type="submit">确认删除</button>
                   </form>
                 </div>
               </details>
@@ -221,7 +221,7 @@
               </details>
 
               <form class="inline" method="post" action="/tenant/{{ tenant_name }}/volume-backup/{{ backup.id }}/delete" data-confirm="确认删除备份 {{ backup.name }} 吗？此操作不可撤销。">
-                <button class="btn btn-secondary" type="submit">删除</button>
+                <button class="btn btn-danger" type="submit">删除</button>
               </form>
             </div>
           </td>

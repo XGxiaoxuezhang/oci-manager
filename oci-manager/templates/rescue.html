@@ -76,7 +76,7 @@
         <tr>
           <td>{{ item.id }}</td>
           <td>{{ item.state }}</td>
-          <td><span class="small">{{ item.service_host_key_fingerprint or item.fingerprint }}</span></td>
+          <td><span class="small" title="{{ item.service_host_key_fingerprint or item.fingerprint }}">{{ (item.service_host_key_fingerprint or item.fingerprint or "-")[:38] }}{% if item.service_host_key_fingerprint and item.service_host_key_fingerprint|length > 38 %}…{% endif %}</span></td>
           <td><span class="small">{{ item.connection_string or '-' }}</span></td>
           <td><span class="small">{{ item.vnc_connection_string or '-' }}</span></td>
           <td>

@@ -44,7 +44,7 @@
             {% else %}
             <form class="inline" method="post" action="/tenant/{{ tenant_name }}/public-ips/release" data-confirm="确认释放公网 IP {{ item.ip_address }} 吗？此操作不可撤销。">
               <input type="hidden" name="public_ip_id" value="{{ item.id }}">
-              <button class="btn btn-secondary" type="submit">释放</button>
+              <button class="btn btn-danger" type="submit">释放</button>
             </form>
             {% endif %}
           </td>

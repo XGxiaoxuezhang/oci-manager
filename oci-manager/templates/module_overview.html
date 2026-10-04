@@ -16,7 +16,7 @@
     </div>
     <div class="meta-list">
       <div class="meta-row"><span class="muted">区域</span><span>{{ tenant.region }}</span></div>
-      <div class="meta-row"><span class="muted">Tenancy</span><span>{{ tenant.tenant_id[:22] }}...</span></div>
+      <div class="meta-row"><span class="muted">Tenancy</span><span class="small" title="{{ tenant.tenant_id }}">{{ tenant.tenant_id[:22] }}…</span></div>
     </div>
     <div class="actions">
       <a class="btn btn-primary" href="/tenant/{{ tenant.name }}/{{ module_path }}">进入</a>

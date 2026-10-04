@@ -31,7 +31,7 @@
         <div class="field"><label>显示名称</label><input name="display_name" required></div>
         <div class="field"><label>数据库名</label><input name="db_name" maxlength="14" placeholder="以字母开头，最多 14 位" required></div>
       </div>
-      <div class="field"><label>管理员密码</label><input name="admin_password" type="password" placeholder="至少 12 位，需包含大小写、数字和特殊字符" required></div>
+      <div class="field"><label>管理员密码</label><input name="admin_password" type="password" minlength="12" placeholder="至少 12 位，需包含大小写、数字和特殊字符" required></div>
       <div class="grid grid-3">
         <div class="field"><label>工作负载</label><select name="workload"><option value="OLTP">事务型 / ATP</option><option value="DW">数仓型 / ADW</option><option value="AJD">JSON</option><option value="APEX">APEX</option></select></div>
         <div class="field"><label>数据库版本</label><input name="db_version" value="{{ database_form_defaults.db_version }}"></div>
@@ -73,8 +73,8 @@
       <div class="kv-item"><strong>存储</strong>{{ selected_database.data_storage_size_in_tbs }} TB</div>
       <div class="kv-item"><strong>数据库版本</strong>{{ selected_database.db_version }}</div>
       <div class="kv-item"><strong>授权模式</strong>{{ selected_database.license_model }}</div>
-      <div class="kv-item"><strong>子网</strong>{{ selected_database.subnet_id }}</div>
-      <div class="kv-item"><strong>私网端点</strong>{{ selected_database.private_endpoint }}</div>
+      <div class="kv-item"><strong>子网</strong><span class="small" title="{{ selected_database.subnet_id }}">{{ (selected_database.subnet_id or "-")[:38] }}{% if selected_database.subnet_id and selected_database.subnet_id|length > 38 %}…{% endif %}</span> <button class="btn btn-ghost" type="button" data-copy="{{ selected_database.subnet_id }}">复制</button></div>
+      <div class="kv-item"><strong>私网端点</strong><span class="small" title="{{ selected_database.private_endpoint }}">{{ (selected_database.private_endpoint or "-")[:38] }}{% if selected_database.private_endpoint and selected_database.private_endpoint|length > 38 %}…{% endif %}</span> <button class="btn btn-ghost" type="button" data-copy="{{ selected_database.private_endpoint }}">复制</button></div>
       <div class="kv-item"><strong>私网标签</strong>{{ selected_database.private_endpoint_label }}</div>
       <div class="kv-item"><strong>mTLS</strong>{{ '是' if selected_database.is_mtls_connection_required else '否' }}</div>
       <div class="kv-item"><strong>白名单</strong>{{ selected_database.whitelisted_ips|join(', ') if selected_database.whitelisted_ips else '未设置' }}</div>
@@ -105,15 +105,15 @@
       <button class="btn btn-primary" type="submit">下载 Wallet</button>
     </form>
     <div class="section-head" style="margin-top:18px;"><div><h3>手动备份</h3></div></div>
-    <form method="post" action="/tenant/{{ tenant_name }}/databases/{{ selected_database.id }}/backup">
+    <form method="post" action="/tenant/{{ tenant_name }}/databases/{{ selected_database.id }}/backup" data-confirm="确认提交手动备份请求吗？">
       <div class="field"><label>备份名称</label><input name="display_name" placeholder="{{ selected_database.name }}-manual"></div>
-      <button class="btn btn-secondary" type="submit" onclick="return confirm('确认提交手动备份请求吗？');">创建备份</button>
+      <button class="btn btn-secondary" type="submit">创建备份</button>
     </form>
     <div class="section-head" style="margin-top:18px;"><div><h3>删除数据库</h3></div></div>
     <form method="post" action="/tenant/{{ tenant_name }}/databases/{{ selected_database.id }}/delete">
       <input type="hidden" name="expected_name" value="{{ selected_database.name }}">
       <div class="field"><label>输入数据库名确认删除</label><input name="confirm_name" placeholder="请输入 {{ selected_database.name }}" required></div>
-      <button class="btn btn-danger" type="submit" onclick="return confirm('确定提交删除数据库请求吗？此操作不可逆。');">删除数据库</button>
+      <button class="btn btn-danger" type="submit">删除数据库</button>
     </form>
     {% else %}
     <div class="section-head"><div><h2>选择一个数据库</h2></div></div>

@@ -20,15 +20,15 @@
     <tbody>
       {% for event in events %}
       <tr>
-        <td>{{ event.time }}</td>
+        <td class="nowrap">{{ event.time_text }}</td>
         <td>{{ event.user }}</td>
         <td>{{ event.tenant_name }}</td>
-        <td>{{ event.action }}</td>
+        <td title="{{ event.action }}">{{ event.action_label }}</td>
         <td><span class="badge badge-mid">{{ event.status }}</span></td>
         <td>{{ event.details.path }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="6" class="empty">还没有操作记录。</td></tr>
+      <tr><td colspan="6"><div class="empty">还没有操作记录。</div></td></tr>
       {% endfor %}
     </tbody>
   </table>

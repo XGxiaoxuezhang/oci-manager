@@ -12,13 +12,13 @@
 <section class="panel" style="max-width:560px;">
   <p class="section-sub">当前公网 IP：<strong>{{ instance.public_ip }}</strong></p>
   <p class="section-sub">确认后将为实例分配新的保留公网 IP。旧 IP 默认是「保留」类型，不解绑也删不掉，会一直占着账号配额。</p>
-  <form method="post">
+  <form method="post" data-confirm="确定更换公网 IP 吗？">
     <label class="check-row">
       <input type="checkbox" name="release_old" checked>
       <span>同时释放旧公网 IP（推荐）</span>
     </label>
     <div class="actions" style="margin-top:8px;">
-      <button class="btn btn-primary" type="submit" onclick="return confirm('确定更换公网 IP 吗？');">确认更换</button>
+      <button class="btn btn-primary" type="submit">确认更换</button>
       <a class="btn btn-ghost" href="/tenant/{{ tenant_name }}/instances">取消</a>
     </div>
   </form>
