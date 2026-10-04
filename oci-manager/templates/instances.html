@@ -33,6 +33,10 @@
 </section>
 
 <section class="table-card">
+  <div class="table-toolbar" data-table-filter>
+    <input type="search" data-filter-text placeholder="按名称 / IP / 规格过滤" aria-label="过滤实例">
+    <select data-filter-state aria-label="按状态过滤"><option value="">全部状态</option></select>
+  </div>
   <div class="table-wrap">
     <table>
       <thead><tr><th>名称</th><th>规格</th><th>状态</th><th>CPU 24h</th><th>可用域</th><th>公网 IP</th><th>私网 IP</th><th>IPv6</th><th>创建时间</th><th>操作</th></tr></thead>
@@ -44,7 +48,7 @@
             {% if instance.id in scheduled_instance_ids %}<span class="badge badge-mid" title="已配置定时启停计划">定时</span>{% endif %}
           </td>
           <td><span class="small">{{ instance.shape }}</span></td>
-          <td><span class="badge {{ 'badge-good' if instance.state_kind == 'running' else 'badge-bad' if instance.state_kind == 'terminated' else 'badge-warn' if instance.state_kind == 'pending' else 'badge-mid' }}">{{ instance.state }}</span></td>
+          <td><span class="badge badge-state {{ 'badge-good' if instance.state_kind == 'running' else 'badge-bad' if instance.state_kind == 'terminated' else 'badge-warn' if instance.state_kind == 'pending' else 'badge-mid' }}">{{ instance.state }}</span></td>
           <td>
             {% if instance.cpu_points %}
             {% set n = instance.cpu_points|length %}
@@ -78,9 +82,9 @@
           <td>
             <div class="actions">
               {% if 'start' in instance.actions %}
-              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/start"><button class="btn btn-secondary" type="submit">启动</button></form>
+              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/start" data-ajax><button class="btn btn-secondary" type="submit">启动</button></form>
               {% elif 'softstop' in instance.actions %}
-              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/softstop" data-confirm="确认停止实例 {{ instance.name }} 吗？"><button class="btn btn-secondary" type="submit">停止</button></form>
+              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/softstop" data-ajax data-confirm="确认停止实例 {{ instance.name }} 吗？"><button class="btn btn-secondary" type="submit">停止</button></form>
               {% elif instance.state_kind == 'pending' %}
               <span class="small">处理中…</span>
               {% endif %}
@@ -90,16 +94,16 @@
                 <div class="menu-panel">
                   <div class="menu-label">电源</div>
                   {% if 'start' in instance.actions %}
-                  <form method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/start"><button class="menu-item" type="submit">启动</button></form>
+                  <form method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/start" data-ajax><button class="menu-item" type="submit">启动</button></form>
                   {% endif %}
                   {% if 'softstop' in instance.actions %}
-                  <form method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/softstop" data-confirm="确认停止实例 {{ instance.name }} 吗？"><button class="menu-item" type="submit">软停</button></form>
+                  <form method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/softstop" data-ajax data-confirm="确认停止实例 {{ instance.name }} 吗？"><button class="menu-item" type="submit">软停</button></form>
                   {% endif %}
                   {% if 'softreset' in instance.actions %}
-                  <form method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/softreset" data-confirm="确认软重启实例 {{ instance.name }} 吗？"><button class="menu-item" type="submit">软重启</button></form>
+                  <form method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/softreset" data-ajax data-confirm="确认软重启实例 {{ instance.name }} 吗？"><button class="menu-item" type="submit">软重启</button></form>
                   {% endif %}
                   {% if 'reset' in instance.actions %}
-                  <form method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/reset" data-confirm="确认强制重启实例 {{ instance.name }} 吗？"><button class="menu-item" type="submit">强制重启</button></form>
+                  <form method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/reset" data-ajax data-confirm="确认强制重启实例 {{ instance.name }} 吗？"><button class="menu-item" type="submit">强制重启</button></form>
                   {% endif %}
 
                   {% if instance.state_kind != 'terminated' %}

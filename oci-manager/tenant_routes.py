@@ -10,7 +10,7 @@ from export_utils import send_csv
 from audit_service import RANGE_OPTIONS, cloud_audit_context
 from launch_manager import LAUNCH_TASKS, TASK_LOCK, append_task_log, clear_finished_tasks, filtered_tasks, launch_context, launch_worker, save_launch_tasks, task_snapshot, update_task
 from rendering import render_page
-from settings import DEFAULT_REGIONS, INSTANCE_ACTIONS
+from settings import DEFAULT_REGIONS, INSTANCE_ACTIONS, INSTANCE_ACTION_LABELS
 from storage import load_tenants, normalize_tenant_name, now_iso, save_tenants
 from tenant_services import (
     append_security_rule,
@@ -187,37 +187,37 @@ def add_tenant():
         key_file = request.files.get("key_file")
         if not tenant_name:
             flash("租户名称不能为空，并且只能包含字母、数字、点、下划线和短横线。", "error")
-            return redirect(url_for("tenant.add_tenant"))
+            return render_page("add_tenant", regions=DEFAULT_REGIONS, form=request.form)
         if not looks_like_ocid(tenant_id, "tenancy") or not looks_like_ocid(user_id, "user"):
             flash("Tenancy OCID 或 User OCID 格式不正确。", "error")
-            return redirect(url_for("tenant.add_tenant"))
+            return render_page("add_tenant", regions=DEFAULT_REGIONS, form=request.form)
         if not region:
             flash("区域不能为空。", "error")
-            return redirect(url_for("tenant.add_tenant"))
+            return render_page("add_tenant", regions=DEFAULT_REGIONS, form=request.form)
         if not looks_like_fingerprint(fingerprint):
             flash("Fingerprint 格式不正确。", "error")
-            return redirect(url_for("tenant.add_tenant"))
+            return render_page("add_tenant", regions=DEFAULT_REGIONS, form=request.form)
         if not key_file or not key_file.filename:
             flash("请上传 OCI API 私钥文件。", "error")
-            return redirect(url_for("tenant.add_tenant"))
+            return render_page("add_tenant", regions=DEFAULT_REGIONS, form=request.form)
         if not key_file.filename.lower().endswith(".pem"):
             flash("私钥文件必须是 .pem。", "error")
-            return redirect(url_for("tenant.add_tenant"))
+            return render_page("add_tenant", regions=DEFAULT_REGIONS, form=request.form)
 
         tenants = load_tenants()
         if tenant_name in tenants:
             flash(f"租户 {tenant_name} 已存在，请换一个名称。", "error")
-            return redirect(url_for("tenant.add_tenant"))
+            return render_page("add_tenant", regions=DEFAULT_REGIONS, form=request.form)
 
         try:
             create_tenant_record(tenants, tenant_name, tenant_id, user_id, region, fingerprint, key_file)
         except Exception as exc:
             flash(f"保存租户失败: {exc}", "error")
-            return redirect(url_for("tenant.add_tenant"))
+            return render_page("add_tenant", regions=DEFAULT_REGIONS, form=request.form)
         save_tenants(tenants)
         flash(f"租户 {tenant_name} 已添加。", "success")
         return redirect(url_for("tenant.index"))
-    return render_page("add_tenant", regions=DEFAULT_REGIONS)
+    return render_page("add_tenant", regions=DEFAULT_REGIONS, form={})
 
 
 @tenant_bp.route("/tenant/<tenant_name>/delete", methods=["POST"])
@@ -378,18 +378,28 @@ def instance_action(tenant_name: str, instance_id: str, action: str):
     tenant_cfg = require_tenant(tenant_name)
     if tenant_cfg is None:
         return redirect(url_for("tenant.index"))
+    # fetch 发起的电源操作返回 JSON，前端局部更新状态徽章，避免整页刷新
+    wants_json = request.headers.get("X-Requested-With") == "fetch"
+    action_label = INSTANCE_ACTION_LABELS.get(action, action)
     if action not in INSTANCE_ACTIONS:
+        if wants_json:
+            return {"ok": False, "message": f"不支持的实例操作: {action}"}
         flash(f"不支持的实例操作: {action}", "error")
         return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
     try:
         compute_client = get_compute_client(tenant_cfg)
         current_state = compute_client.get_instance(instance_id).data.lifecycle_state
         if action not in instance_available_actions(current_state):
-            flash(f"当前实例状态 {current_state} 不允许执行 {action} 操作。", "error")
-            return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
+            raise ValueError(f"当前实例状态 {current_state} 不允许执行{action_label}操作。")
         compute_client.instance_action(instance_id, INSTANCE_ACTIONS[action])
-        flash(f"实例操作已提交: {action}", "success")
+        new_state = compute_client.get_instance(instance_id).data.lifecycle_state
+        message = f"已提交{action_label}，实例状态 {current_state} → {new_state}。"
+        if wants_json:
+            return {"ok": True, "message": message, "state": new_state}
+        flash(message, "success")
     except Exception as exc:
+        if wants_json:
+            return {"ok": False, "message": f"实例操作失败: {exc}"}
         flash(f"实例操作失败: {exc}", "error")
     if request.form.get("next_page") == "rescue":
         return redirect(url_for("tenant.rescue_center", tenant_name=tenant_name, instance_id=instance_id))
@@ -565,6 +575,60 @@ def delete_nsg_rule_view(tenant_name: str, nsg_id: str, rule_id: str):
     except Exception as exc:
         flash(f"删除 NSG 规则失败: {exc}", "error")
     return redirect(url_for("tenant.nsg_rules", tenant_name=tenant_name, nsg_id=nsg_id))
+
+
+@tenant_bp.route("/tenant/<tenant_name>/volumes/export")
+def volumes_export(tenant_name: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        context = run_with_timeout(35, volume_context, tenant_cfg)
+    except Exception as exc:
+        flash(f"导出失败: {exc}", "error")
+        return redirect(url_for("tenant.volumes", tenant_name=tenant_name))
+    rows = []
+    for kind, source in (("数据卷", context["volumes"]), ("引导卷", context["boot_volumes"])):
+        for row in source:
+            rows.append(
+                {
+                    "类型": kind,
+                    "名称": row["name"],
+                    "大小(GB)": row["size_gbs"],
+                    "状态": row["state"],
+                    "可用域": row["availability_domain"],
+                    "挂载实例": (row["attached"] or {}).get("instance_name", "-"),
+                    "创建时间": row["created"],
+                }
+            )
+    headers = ["类型", "名称", "大小(GB)", "状态", "可用域", "挂载实例", "创建时间"]
+    return send_csv(f"{tenant_name}-volumes.csv", headers, rows)
+
+
+@tenant_bp.route("/tenant/<tenant_name>/public-ips/export")
+def public_ips_export(tenant_name: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        ip_rows = run_with_timeout(20, list_public_ip_rows, tenant_cfg)
+    except Exception as exc:
+        flash(f"导出失败: {exc}", "error")
+        return redirect(url_for("tenant.list_public_ips", tenant_name=tenant_name))
+    rows = [
+        {
+            "名称": row["display_name"],
+            "IP 地址": row["ip_address"],
+            "状态": row["state"],
+            "已挂载": "是" if row["attached"] else "否",
+            "挂载对象类型": row["assigned_entity_type"],
+            "挂载对象 ID": row["assigned_entity_id"],
+            "创建时间": row["created"],
+        }
+        for row in ip_rows
+    ]
+    headers = ["名称", "IP 地址", "状态", "已挂载", "挂载对象类型", "挂载对象 ID", "创建时间"]
+    return send_csv(f"{tenant_name}-public-ips.csv", headers, rows)
 
 
 @tenant_bp.route("/tenant/<tenant_name>/volumes")

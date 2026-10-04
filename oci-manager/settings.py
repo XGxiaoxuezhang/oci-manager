@@ -78,6 +78,14 @@ INSTANCE_ACTIONS = {
     "reset": "RESET",
 }
 
+INSTANCE_ACTION_LABELS = {
+    "start": "启动",
+    "stop": "强制停止",
+    "softstop": "软停",
+    "softreset": "软重启",
+    "reset": "强制重启",
+}
+
 LAUNCH_PRESETS: dict[str, dict[str, Any]] = {
     "amd1c1g": {
         "label": "AMD 1C1G",

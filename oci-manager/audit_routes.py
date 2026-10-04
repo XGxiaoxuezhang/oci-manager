@@ -3,6 +3,7 @@ from __future__ import annotations
 from flask import Blueprint
 
 from audit import list_audit_events
+from export_utils import send_csv
 from rendering import render_page
 from storage import fmt_dt
 
@@ -82,3 +83,21 @@ def audit_home():
         event["time_text"] = fmt_dt(event.get("time"))
         event["action_label"] = ACTION_LABELS.get(raw_action, raw_action)
     return render_page("audit", events=events)
+
+
+@audit_bp.route("/audit/export")
+def audit_export():
+    events = list_audit_events(500)
+    rows = [
+        {
+            "时间": fmt_dt(event.get("time")),
+            "用户": event.get("user") or "-",
+            "租户": event.get("tenant_name") or "-",
+            "动作": ACTION_LABELS.get(event.get("action", ""), event.get("action", "")),
+            "状态": event.get("status", ""),
+            "路径": (event.get("details") or {}).get("path", ""),
+        }
+        for event in events
+    ]
+    headers = ["时间", "用户", "租户", "动作", "状态", "路径"]
+    return send_csv("oci-manager-audit.csv", headers, rows)

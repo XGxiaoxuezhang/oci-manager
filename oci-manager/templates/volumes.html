@@ -5,6 +5,7 @@
 {% block page_desc %}租户：{{ tenant_name }} · 卷、引导卷与备份{% endblock %}
 {% block page_actions %}
 <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/instances">返回实例</a>
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/volumes/export">导出 CSV</a>
 {% endblock %}
 
 {% block content %}

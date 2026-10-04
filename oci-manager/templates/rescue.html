@@ -22,10 +22,10 @@
       <div class="kv-item"><strong>创建时间</strong>{{ instance.created }}</div>
     </div>
     <div class="actions" style="margin-top:16px;">
-      <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/start"><input type="hidden" name="next_page" value="rescue"><button class="btn btn-success" type="submit">启动</button></form>
-      <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/softstop" data-confirm="确认停止实例 {{ instance.name }} 吗？"><input type="hidden" name="next_page" value="rescue"><button class="btn btn-warning" type="submit">软停</button></form>
-      <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/stop" data-confirm="确认强制停止实例 {{ instance.name }} 吗？"><input type="hidden" name="next_page" value="rescue"><button class="btn btn-danger" type="submit">强停</button></form>
-      <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/reset" data-confirm="确认重启实例 {{ instance.name }} 吗？"><input type="hidden" name="next_page" value="rescue"><button class="btn btn-secondary" type="submit">重启</button></form>
+      <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/start" data-ajax><input type="hidden" name="next_page" value="rescue"><button class="btn btn-success" type="submit">启动</button></form>
+      <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/softstop" data-ajax data-confirm="确认停止实例 {{ instance.name }} 吗？"><input type="hidden" name="next_page" value="rescue"><button class="btn btn-warning" type="submit">软停</button></form>
+      <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/stop" data-ajax data-confirm="确认强制停止实例 {{ instance.name }} 吗？"><input type="hidden" name="next_page" value="rescue"><button class="btn btn-danger" type="submit">强停</button></form>
+      <form class="inline" method="post" action="/tenant/{{ tenant_name }}/instance/action/{{ instance.id }}/reset" data-ajax data-confirm="确认重启实例 {{ instance.name }} 吗？"><input type="hidden" name="next_page" value="rescue"><button class="btn btn-secondary" type="submit">重启</button></form>
     </div>
   </article>
 

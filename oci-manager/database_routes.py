@@ -87,6 +87,23 @@ def databases_export(tenant_name: str):
         return redirect(url_for("database.databases_home", tenant_name=tenant_name))
 
 
+def _render_databases_with_form(tenant_name: str, tenant_cfg: dict[str, Any], form):
+    """创建表单校验/提交失败时带值重渲染，避免用户重填十几个字段。"""
+    try:
+        context = run_with_timeout(8, list_autonomous_databases_context, tenant_cfg, None)
+    except Exception as exc:
+        flash(f"读取自治数据库失败：{exc}", "error")
+        context = {
+            "autonomous_databases": [],
+            "selected_database": None,
+            "backups": [],
+            "database_stats": {"total": 0, "available": 0, "free_tier": 0},
+            "database_form_defaults": {"db_version": "19c", "cpu_core_count": 1, "storage_size_gbs": 20, "character_set": "AL32UTF8", "ncharacter_set": "AL16UTF16"},
+            "load_error": str(exc),
+        }
+    return render_page("databases", tenant_name=tenant_name, create_form=form, **context)
+
+
 @database_bp.route("/tenant/<tenant_name>/databases/create", methods=["POST"])
 def databases_create(tenant_name: str):
     tenant_cfg = require_tenant(tenant_name)
@@ -110,13 +127,13 @@ def databases_create(tenant_name: str):
         storage_size_gbs = int(request.form.get("storage_size_gbs", "20") or "20")
     except ValueError:
         flash("CPU 核数和存储大小必须是整数。", "error")
-        return redirect(url_for("database.databases_home", tenant_name=tenant_name))
+        return _render_databases_with_form(tenant_name, tenant_cfg, request.form)
     if cpu_core_count < 1 or storage_size_gbs < 20:
         flash("CPU 至少 1 核，存储至少 20 GB。", "error")
-        return redirect(url_for("database.databases_home", tenant_name=tenant_name))
+        return _render_databases_with_form(tenant_name, tenant_cfg, request.form)
     if not display_name or not db_name or not admin_password:
         flash("显示名称、数据库名和管理员密码不能为空。", "error")
-        return redirect(url_for("database.databases_home", tenant_name=tenant_name))
+        return _render_databases_with_form(tenant_name, tenant_cfg, request.form)
     try:
         result = create_autonomous_database(
             tenant_cfg,
@@ -140,7 +157,7 @@ def databases_create(tenant_name: str):
         flash(f"数据库 {result['display_name']} 创建请求已提交。{suffix}", "success")
     except Exception as exc:
         flash(f"创建自治数据库失败：{exc}", "error")
-    return redirect(url_for("database.databases_home", tenant_name=tenant_name))
+        return _render_databases_with_form(tenant_name, tenant_cfg, request.form)
 
 
 @database_bp.route("/tenant/<tenant_name>/databases/<database_id>/wallet", methods=["POST"])

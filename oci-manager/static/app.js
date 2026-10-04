@@ -101,6 +101,110 @@
     });
   });
 
+  function showToast(message, ok) {
+    var stack = document.querySelector(".flash-stack");
+    if (!stack) {
+      stack = document.createElement("div");
+      stack.className = "flash-stack";
+      var shell = document.querySelector(".shell");
+      if (shell) {
+        shell.insertBefore(stack, shell.firstChild);
+      } else {
+        document.body.appendChild(stack);
+      }
+    }
+    var item = document.createElement("div");
+    item.className = "flash " + (ok ? "success" : "error");
+    item.setAttribute("role", "alert");
+    item.textContent = message;
+    stack.appendChild(item);
+    setTimeout(function () {
+      item.remove();
+    }, 6000);
+  }
+
+  // data-ajax 表单：fetch 提交（后端识别 X-Requested-With 返回 JSON），成功后局部更新
+  document.querySelectorAll("form[data-ajax]").forEach(function (form) {
+    form.addEventListener("submit", function (event) {
+      if (event.defaultPrevented) {
+        return;
+      }
+      event.preventDefault();
+      var button = form.querySelector("button[type='submit']");
+      if (button) {
+        button.disabled = true;
+      }
+      fetch(form.action, {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrfToken, "X-Requested-With": "fetch" },
+        body: new FormData(form),
+      }).then(function (resp) {
+        return resp.json();
+      }).then(function (data) {
+        showToast(data.message || (data.ok ? "操作已提交。" : "操作失败。"), !!data.ok);
+        if (!data.ok && button) {
+          button.disabled = false;
+        }
+        if (data.ok) {
+          var menu = form.closest("details");
+          if (menu) {
+            menu.removeAttribute("open");
+          }
+          if (data.state) {
+            var row = form.closest("tr");
+            var badge = row ? row.querySelector(".badge-state") : null;
+            if (badge) {
+              badge.textContent = data.state;
+              badge.className = "badge badge-state " + (data.state === "RUNNING" ? "badge-good" : data.state === "STOPPED" || data.state === "TERMINATED" ? "badge-bad" : "badge-mid");
+            }
+          }
+        }
+      }).catch(function () {
+        showToast("网络错误，操作未确认，请稍后重试。", false);
+        if (button) {
+          button.disabled = false;
+        }
+      });
+    });
+  });
+
+  // 实例表筛选：文本匹配整行内容，状态下拉从行内状态徽章自动收集
+  document.querySelectorAll("[data-table-filter]").forEach(function (toolbar) {
+    var wrap = toolbar.parentElement ? toolbar.parentElement.querySelector(".table-wrap") : null;
+    var table = wrap ? wrap.querySelector("table") : null;
+    var textInput = toolbar.querySelector("[data-filter-text]");
+    var stateSelect = toolbar.querySelector("[data-filter-state]");
+    if (!table || !textInput || !stateSelect) {
+      return;
+    }
+    var rows = Array.prototype.slice.call(table.querySelectorAll("tbody tr"));
+    var states = {};
+    rows.forEach(function (row) {
+      var badge = row.querySelector(".badge-state");
+      if (badge) {
+        states[badge.textContent.trim()] = true;
+      }
+    });
+    Object.keys(states).sort().forEach(function (state) {
+      var option = document.createElement("option");
+      option.value = state;
+      option.textContent = state;
+      stateSelect.appendChild(option);
+    });
+    function applyFilter() {
+      var text = (textInput.value || "").trim().toLowerCase();
+      var state = stateSelect.value;
+      rows.forEach(function (row) {
+        var matchText = !text || row.textContent.toLowerCase().indexOf(text) !== -1;
+        var badge = row.querySelector(".badge-state");
+        var matchState = !state || (badge && badge.textContent.trim() === state);
+        row.hidden = !(matchText && matchState);
+      });
+    }
+    textInput.addEventListener("input", applyFilter);
+    stateSelect.addEventListener("change", applyFilter);
+  });
+
   // 提交后禁用按钮，避免 OCI 慢调用期间重复提交；成功后整页跳转会自然重置。
   // 确认型处理器（data-confirm / data-confirm-value）先运行，被取消时这里跳过。
   document.addEventListener("submit", function (event) {
