@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from tenant_services import console_private_key_path
+from settings import server_host
 
 
 @dataclass
@@ -191,16 +192,19 @@ def start_web_vnc(key: str, vnc_connection_string: str, private_key_path: str | 
     tunnel = start_tunnel(key, vnc_connection_string, private_key_path)
     existing = WEB_PROXIES.get(key)
     if existing and existing.process.poll() is None:
-        return {"web_port": existing.web_port, "vnc_port": existing.vnc_port, "already_running": True}
+        return {"web_port": existing.web_port, "vnc_port": tunnel["local_port"], "already_running": True}
     web_port = _free_port(6080)
     vnc_port = int(tunnel["local_port"])
+    # 监听地址跟随面板：面板绑 0.0.0.0 时远程浏览器才有 WS 可连。
+    # websockify 本身无鉴权，端口随机且仅在隧道开启期间存活，暴露在不可信网络时需自行加防火墙限制。
+    bind_host = server_host()
     command = [
         sys.executable,
         "-m",
         "websockify",
         "--idle-timeout",
         "1800",
-        f"127.0.0.1:{web_port}",
+        f"{bind_host}:{web_port}",
         f"127.0.0.1:{vnc_port}",
     ]
     process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

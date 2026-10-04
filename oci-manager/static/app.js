@@ -19,7 +19,7 @@
     if (!text || text === "-") {
       return;
     }
-    navigator.clipboard.writeText(text).then(function () {
+    var done = function () {
       var oldText = button.textContent;
       button.textContent = "已复制";
       button.disabled = true;
@@ -27,13 +27,38 @@
         button.textContent = oldText;
         button.disabled = false;
       }, 900);
-    }).catch(function () {
+    };
+    var fail = function () {
       var oldText = button.textContent;
       button.textContent = "复制失败";
       setTimeout(function () {
         button.textContent = oldText;
       }, 900);
-    });
+    };
+    // navigator.clipboard 只在 https / localhost 存在；NAS 的 http 访问必须降级到 execCommand
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(done, fail);
+      return;
+    }
+    var helper = document.createElement("textarea");
+    helper.value = text;
+    helper.setAttribute("readonly", "");
+    helper.style.position = "fixed";
+    helper.style.opacity = "0";
+    document.body.appendChild(helper);
+    helper.select();
+    var ok = false;
+    try {
+      ok = document.execCommand("copy");
+    } catch (error) {
+      ok = false;
+    }
+    document.body.removeChild(helper);
+    if (ok) {
+      done();
+    } else {
+      fail();
+    }
   }
 
   document.querySelectorAll("[data-copy]").forEach(function (button) {
@@ -76,10 +101,37 @@
     });
   });
 
+  // 提交后禁用按钮，避免 OCI 慢调用期间重复提交；成功后整页跳转会自然重置。
+  // 确认型处理器（data-confirm / data-confirm-value）先运行，被取消时这里跳过。
+  document.addEventListener("submit", function (event) {
+    var form = event.target;
+    if (event.defaultPrevented || !(form instanceof HTMLFormElement)) {
+      return;
+    }
+    window.setTimeout(function () {
+      form.querySelectorAll("button[type='submit']").forEach(function (button) {
+        button.disabled = true;
+      });
+    }, 0);
+  });
+
+  // 浏览器后退从 bfcache 恢复页面时，重新启用被禁用的提交按钮
+  window.addEventListener("pageshow", function (event) {
+    if (event.persisted) {
+      document.querySelectorAll("button[type='submit']:disabled").forEach(function (button) {
+        button.disabled = false;
+      });
+    }
+  });
+
   var autoRefresh = document.querySelector("[data-auto-refresh]");
   if (autoRefresh) {
     var seconds = Number(autoRefresh.getAttribute("data-auto-refresh")) || 15;
-    setTimeout(function () {
+    setInterval(function () {
+      // 有弹窗 / 展开的任务日志 / 菜单打开时跳过本轮，避免整页刷新冲掉现场
+      if (document.querySelector("dialog[open], details.menu[open], details.fold[open]")) {
+        return;
+      }
       window.location.reload();
     }, seconds * 1000);
   }

@@ -124,6 +124,7 @@
         {{ nav_item('/audit', 'log', '操作日志', page == 'audit') }}
         {{ nav_item('/tenant/' ~ tenant_name ~ '/cloud-audit' if tenant_name else '/tenants', 'key', '云端审计', page in ['cloud_audit'], not tenant_name) }}
         {{ nav_item('/checks', 'check', 'API 巡检', page == 'checks') }}
+        {{ nav_item('/checks/idle', 'check', '闲置检测', page == 'idle') }}
         {{ nav_item('/cost', 'cost', '免费额度', page == 'cost') }}
       </div>
 
