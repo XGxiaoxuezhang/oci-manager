@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 from uuid import uuid4
 
+from oci_helpers import friendly_error
 from flask import Blueprint, flash, redirect, request, url_for
 
 from audit import list_audit_events
@@ -212,7 +213,7 @@ def add_tenant():
         try:
             create_tenant_record(tenants, tenant_name, tenant_id, user_id, region, fingerprint, key_file)
         except Exception as exc:
-            flash(f"保存租户失败: {exc}", "error")
+            flash(f"保存租户失败: {friendly_error(exc)}", "error")
             return render_page("add_tenant", regions=DEFAULT_REGIONS, form=request.form)
         save_tenants(tenants)
         flash(f"租户 {tenant_name} 已添加。", "success")
@@ -258,7 +259,7 @@ def list_users(tenant_name: str):
         ctx = run_with_timeout(15, iam_security_context, tenant_cfg)
         return render_page("users", tenant_name=tenant_name, **ctx)
     except Exception as exc:
-        flash(f"读取用户列表失败: {exc}", "error")
+        flash(f"读取用户列表失败: {friendly_error(exc)}", "error")
         return render_page("users", tenant_name=tenant_name, users=[], summary={}, findings=[], load_error=str(exc))
 
 
@@ -278,7 +279,7 @@ def create_user(tenant_name: str):
         for message in create_user_for_tenant(tenant_cfg, username, email, is_admin, create_password):
             flash(message, "success")
     except Exception as exc:
-        flash(f"创建用户失败: {exc}", "error")
+        flash(f"创建用户失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.list_users", tenant_name=tenant_name))
 
 
@@ -291,7 +292,7 @@ def reset_mfa(tenant_name: str, user_id: str):
         reset_user_mfa(tenant_cfg, user_id)
         flash("用户 MFA 已重置。", "success")
     except Exception as exc:
-        flash(f"重置 MFA 失败: {exc}", "error")
+        flash(f"重置 MFA 失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.list_users", tenant_name=tenant_name))
 
 
@@ -311,7 +312,7 @@ def rotate_key(tenant_name: str):
             flash(f"旧私钥已备份到 {result['backup_path']}。", "success")
         flash(f"旧指纹 {result.get('old_fingerprint') or '-'} 仍保留在 OCI，确认新密钥可用后到下方删除。", "error")
     except Exception as exc:
-        flash(f"轮换密钥失败: {exc}", "error")
+        flash(f"轮换密钥失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.list_users", tenant_name=tenant_name))
 
 
@@ -324,7 +325,7 @@ def delete_key(tenant_name: str, user_id: str, fingerprint: str):
         delete_api_key(tenant_cfg, user_id, fingerprint)
         flash(f"已删除 API Key {fingerprint[:16]}…。", "success")
     except Exception as exc:
-        flash(f"删除 API Key 失败: {exc}", "error")
+        flash(f"删除 API Key 失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.list_users", tenant_name=tenant_name))
 
 
@@ -347,7 +348,7 @@ def list_instances(tenant_name: str):
     try:
         context["instances"] = run_with_timeout(45, list_instance_rows, tenant_cfg)
     except Exception as exc:
-        flash(f"读取实例列表失败: {exc}", "error")
+        flash(f"读取实例列表失败: {friendly_error(exc)}", "error")
         context["load_error"] = str(exc)
     try:
         context.update(run_with_timeout(20, launch_context, tenant_cfg))
@@ -369,7 +370,7 @@ def export_instances(tenant_name: str):
             rows,
         )
     except Exception as exc:
-        flash(f"导出实例失败: {exc}", "error")
+        flash(f"导出实例失败: {friendly_error(exc)}", "error")
         return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
 
 
@@ -399,8 +400,8 @@ def instance_action(tenant_name: str, instance_id: str, action: str):
         flash(message, "success")
     except Exception as exc:
         if wants_json:
-            return {"ok": False, "message": f"实例操作失败: {exc}"}
-        flash(f"实例操作失败: {exc}", "error")
+            return {"ok": False, "message": f"实例操作失败: {friendly_error(exc)}"}
+        flash(f"实例操作失败: {friendly_error(exc)}", "error")
     if request.form.get("next_page") == "rescue":
         return redirect(url_for("tenant.rescue_center", tenant_name=tenant_name, instance_id=instance_id))
     return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
@@ -420,7 +421,7 @@ def instance_terminate(tenant_name: str, instance_id: str):
         )
         flash(f"实例 {name} 终止请求已提交。", "success")
     except Exception as exc:
-        flash(f"终止实例失败: {exc}", "error")
+        flash(f"终止实例失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
 
 
@@ -441,7 +442,7 @@ def change_ip(tenant_name: str, instance_id: str):
             return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
         return render_page("change_ip", tenant_name=tenant_name, instance=change_ip_context(tenant_cfg, instance_id))
     except Exception as exc:
-        flash(f"更换公网 IP 失败: {exc}", "error")
+        flash(f"更换公网 IP 失败: {friendly_error(exc)}", "error")
         return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
 
 
@@ -459,7 +460,7 @@ def list_public_ips(tenant_name: str):
             orphan_count=sum(1 for row in rows if not row["attached"]),
         )
     except Exception as exc:
-        flash(f"读取公网 IP 失败: {exc}", "error")
+        flash(f"读取公网 IP 失败: {friendly_error(exc)}", "error")
         return render_page("public_ips", tenant_name=tenant_name, public_ips=[], orphan_count=0, load_error=str(exc))
 
 
@@ -475,7 +476,7 @@ def release_public_ip_view(tenant_name: str):
         released = release_public_ip(tenant_cfg, public_ip_id)
         flash(f"已释放公网 IP {released}。", "success")
     except Exception as exc:
-        flash(f"释放公网 IP 失败: {exc}", "error")
+        flash(f"释放公网 IP 失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.list_public_ips", tenant_name=tenant_name))
 
 
@@ -502,7 +503,7 @@ def list_nsgs(tenant_name: str):
         context = run_with_timeout(25, nsg_context, tenant_cfg)
     except Exception as exc:
         context = {"nsgs": [], "load_error": str(exc)}
-        flash(f"读取网络安全组失败: {exc}", "error")
+        flash(f"读取网络安全组失败: {friendly_error(exc)}", "error")
     return render_page("nsg", tenant_name=tenant_name, **context)
 
 
@@ -514,7 +515,7 @@ def nsg_rules(tenant_name: str, nsg_id: str):
     try:
         context = run_with_timeout(25, nsg_rules_context, tenant_cfg, nsg_id)
     except Exception as exc:
-        flash(f"读取 NSG 规则失败: {exc}", "error")
+        flash(f"读取 NSG 规则失败: {friendly_error(exc)}", "error")
         return redirect(url_for("tenant.list_nsgs", tenant_name=tenant_name))
     return render_page("nsg_rules", tenant_name=tenant_name, protocol_options=NSG_PROTOCOLS, **context)
 
@@ -537,7 +538,7 @@ def add_nsg_rule_view(tenant_name: str, nsg_id: str):
         )
         flash("NSG 规则已添加。", "success")
     except Exception as exc:
-        flash(f"添加 NSG 规则失败: {exc}", "error")
+        flash(f"添加 NSG 规则失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.nsg_rules", tenant_name=tenant_name, nsg_id=nsg_id))
 
 
@@ -560,7 +561,7 @@ def update_nsg_rule_view(tenant_name: str, nsg_id: str, rule_id: str):
         )
         flash("NSG 规则已更新。", "success")
     except Exception as exc:
-        flash(f"更新 NSG 规则失败: {exc}", "error")
+        flash(f"更新 NSG 规则失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.nsg_rules", tenant_name=tenant_name, nsg_id=nsg_id))
 
 
@@ -573,7 +574,7 @@ def delete_nsg_rule_view(tenant_name: str, nsg_id: str, rule_id: str):
         remove_nsg_rule(tenant_cfg, nsg_id, rule_id)
         flash("NSG 规则已删除。", "success")
     except Exception as exc:
-        flash(f"删除 NSG 规则失败: {exc}", "error")
+        flash(f"删除 NSG 规则失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.nsg_rules", tenant_name=tenant_name, nsg_id=nsg_id))
 
 
@@ -585,7 +586,7 @@ def volumes_export(tenant_name: str):
     try:
         context = run_with_timeout(35, volume_context, tenant_cfg)
     except Exception as exc:
-        flash(f"导出失败: {exc}", "error")
+        flash(f"导出失败: {friendly_error(exc)}", "error")
         return redirect(url_for("tenant.volumes", tenant_name=tenant_name))
     rows = []
     for kind, source in (("数据卷", context["volumes"]), ("引导卷", context["boot_volumes"])):
@@ -613,7 +614,7 @@ def public_ips_export(tenant_name: str):
     try:
         ip_rows = run_with_timeout(20, list_public_ip_rows, tenant_cfg)
     except Exception as exc:
-        flash(f"导出失败: {exc}", "error")
+        flash(f"导出失败: {friendly_error(exc)}", "error")
         return redirect(url_for("tenant.list_public_ips", tenant_name=tenant_name))
     rows = [
         {
@@ -640,7 +641,7 @@ def volumes(tenant_name: str):
         context = run_with_timeout(35, volume_context, tenant_cfg)
     except Exception as exc:
         context = {"volumes": [], "boot_volumes": [], "backups": [], "instances": [], "availability_domains": [], "orphan_count": 0, "load_error": str(exc)}
-        flash(f"读取块存储失败: {exc}", "error")
+        flash(f"读取块存储失败: {friendly_error(exc)}", "error")
     return render_page("volumes", tenant_name=tenant_name, **context)
 
 
@@ -660,7 +661,7 @@ def create_volume_view(tenant_name: str):
         create_volume(tenant_cfg, request.form.get("availability_domain", ""), size, request.form.get("display_name", ""))
         flash("块存储卷已创建。", "success")
     except Exception as exc:
-        flash(f"创建卷失败: {exc}", "error")
+        flash(f"创建卷失败: {friendly_error(exc)}", "error")
     return _back_to_volumes(tenant_name)
 
 
@@ -676,7 +677,7 @@ def attach_volume_view(tenant_name: str, volume_id: str):
         attach_volume(tenant_cfg, volume_id, instance_id)
         flash("已发起挂载，稍后刷新查看状态。", "success")
     except Exception as exc:
-        flash(f"挂载失败: {exc}", "error")
+        flash(f"挂载失败: {friendly_error(exc)}", "error")
     return _back_to_volumes(tenant_name)
 
 
@@ -689,7 +690,7 @@ def detach_volume_view(tenant_name: str, attachment_id: str):
         detach_volume(tenant_cfg, attachment_id)
         flash("已发起卸载，稍后刷新查看状态。", "success")
     except Exception as exc:
-        flash(f"卸载失败: {exc}", "error")
+        flash(f"卸载失败: {friendly_error(exc)}", "error")
     return _back_to_volumes(tenant_name)
 
 
@@ -707,7 +708,7 @@ def resize_volume_view(tenant_name: str, volume_id: str):
         resize_volume(tenant_cfg, volume_id, size)
         flash(f"已提交扩容到 {size} GB。", "success")
     except Exception as exc:
-        flash(f"扩容失败: {exc}", "error")
+        flash(f"扩容失败: {friendly_error(exc)}", "error")
     return _back_to_volumes(tenant_name)
 
 
@@ -723,7 +724,7 @@ def delete_volume_view(tenant_name: str, volume_id: str):
         delete_volume(tenant_cfg, volume_id)
         flash("卷已删除。", "success")
     except Exception as exc:
-        flash(f"删除卷失败: {exc}", "error")
+        flash(f"删除卷失败: {friendly_error(exc)}", "error")
     return _back_to_volumes(tenant_name)
 
 
@@ -736,7 +737,7 @@ def backup_volume_view(tenant_name: str, volume_id: str):
         create_backup(tenant_cfg, volume_id, request.form.get("display_name", ""))
         flash("已发起备份，可在下方备份列表查看进度。", "success")
     except Exception as exc:
-        flash(f"创建备份失败: {exc}", "error")
+        flash(f"创建备份失败: {friendly_error(exc)}", "error")
     return _back_to_volumes(tenant_name)
 
 
@@ -752,7 +753,7 @@ def resize_boot_volume_view(tenant_name: str, boot_volume_id: str):
         resize_boot_volume(tenant_cfg, boot_volume_id, size)
         flash(f"已提交引导卷扩容到 {size} GB。", "success")
     except Exception as exc:
-        flash(f"引导卷扩容失败: {exc}", "error")
+        flash(f"引导卷扩容失败: {friendly_error(exc)}", "error")
     return _back_to_volumes(tenant_name)
 
 
@@ -768,7 +769,7 @@ def delete_boot_volume_view(tenant_name: str, boot_volume_id: str):
         delete_boot_volume(tenant_cfg, boot_volume_id)
         flash("引导卷已删除。", "success")
     except Exception as exc:
-        flash(f"删除引导卷失败: {exc}", "error")
+        flash(f"删除引导卷失败: {friendly_error(exc)}", "error")
     return _back_to_volumes(tenant_name)
 
 
@@ -786,7 +787,7 @@ def restore_backup_view(tenant_name: str, backup_id: str):
         )
         flash(f"已从备份创建新卷 {volume_id[:24]}…，请在卷列表查看。", "success")
     except Exception as exc:
-        flash(f"从备份恢复失败: {exc}", "error")
+        flash(f"从备份恢复失败: {friendly_error(exc)}", "error")
     return _back_to_volumes(tenant_name)
 
 
@@ -799,7 +800,7 @@ def delete_backup_view(tenant_name: str, backup_id: str):
         delete_backup(tenant_cfg, backup_id)
         flash("备份已删除。", "success")
     except Exception as exc:
-        flash(f"删除备份失败: {exc}", "error")
+        flash(f"删除备份失败: {friendly_error(exc)}", "error")
     return _back_to_volumes(tenant_name)
 
 
@@ -826,7 +827,7 @@ def cloud_audit(tenant_name: str):
         context.update(run_with_timeout(40, cloud_audit_context, tenant_cfg, hours, keyword))
         context["tenant_name"] = tenant_name
     except Exception as exc:
-        flash(f"读取云端审计日志失败: {exc}", "error")
+        flash(f"读取云端审计日志失败: {friendly_error(exc)}", "error")
         context["load_error"] = str(exc)
     return render_page("cloud_audit", **context)
 
@@ -849,12 +850,12 @@ def edit_instance(tenant_name: str, instance_id: str):
             flash(f"实例 {result['instance_name']} 更新请求已提交：{changed}。", "success")
             return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
         except Exception as exc:
-            flash(f"更新实例失败: {exc}", "error")
+            flash(f"更新实例失败: {friendly_error(exc)}", "error")
     try:
         context = instance_edit_context(tenant_cfg, instance_id)
         return render_page("instance_edit", tenant_name=tenant_name, **context)
     except Exception as exc:
-        flash(f"读取实例编辑信息失败: {exc}", "error")
+        flash(f"读取实例编辑信息失败: {friendly_error(exc)}", "error")
         return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
 
 
@@ -937,7 +938,7 @@ def rescue_center(tenant_name: str, instance_id: str):
             **run_with_timeout(30, rescue_context, tenant_cfg, instance_id),
         )
     except Exception as exc:
-        flash(f"读取救机信息失败: {exc}", "error")
+        flash(f"读取救机信息失败: {friendly_error(exc)}", "error")
         return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
 
 
@@ -955,7 +956,7 @@ def create_console_connection(tenant_name: str, instance_id: str):
         suffix = " 已使用本地控制台专用密钥。" if generated else ""
         flash(f"控制台连接已创建: {connection_id}.{suffix}", "success")
     except Exception as exc:
-        flash(f"创建串口控制台连接失败: {exc}", "error")
+        flash(f"创建串口控制台连接失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.rescue_center", tenant_name=tenant_name, instance_id=instance_id))
 
 
@@ -977,7 +978,7 @@ def start_vnc_tunnel(tenant_name: str, instance_id: str):
         label = "已存在" if result["already_running"] else "已启动"
         flash(f"本地 VNC 隧道{label}: 127.0.0.1:{result['local_port']}。", "success")
     except Exception as exc:
-        flash(f"启动本地 VNC 隧道失败: {exc}", "error")
+        flash(f"启动本地 VNC 隧道失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.rescue_center", tenant_name=tenant_name, instance_id=instance_id))
 
 
@@ -999,7 +1000,7 @@ def start_novnc(tenant_name: str, instance_id: str):
         flash(f"Web VNC 已启动: WebSocket {result['web_port']} / VNC {result['vnc_port']}。", "success")
         return redirect(url_for("tenant.novnc_view", tenant_name=tenant_name, instance_id=instance_id, connection_id=connection_id))
     except Exception as exc:
-        flash(f"启动 Web VNC 失败: {exc}", "error")
+        flash(f"启动 Web VNC 失败: {friendly_error(exc)}", "error")
         return redirect(url_for("tenant.rescue_center", tenant_name=tenant_name, instance_id=instance_id))
 
 
@@ -1043,7 +1044,7 @@ def resize_boot_volume(tenant_name: str, instance_id: str):
         expand_boot_volume(tenant_cfg, instance_id, new_size)
         flash(f"引导卷扩容请求已提交，新容量 {new_size} GB。", "success")
     except Exception as exc:
-        flash(f"引导卷扩容失败: {exc}", "error")
+        flash(f"引导卷扩容失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.rescue_center", tenant_name=tenant_name, instance_id=instance_id))
 
 
@@ -1055,7 +1056,7 @@ def list_security_lists(tenant_name: str):
     try:
         return render_page("security_lists", tenant_name=tenant_name, security_lists=run_with_timeout(8, list_security_list_rows, tenant_cfg))
     except Exception as exc:
-        flash(f"读取安全列表失败: {exc}", "error")
+        flash(f"读取安全列表失败: {friendly_error(exc)}", "error")
         return render_page("security_lists", tenant_name=tenant_name, security_lists=[], load_error=str(exc))
 
 
@@ -1067,7 +1068,7 @@ def security_list_rules(tenant_name: str, security_list_id: str):
     try:
         return render_page("security_rules", tenant_name=tenant_name, **run_with_timeout(8, security_rules_context, tenant_cfg, security_list_id))
     except Exception as exc:
-        flash(f"读取安全规则失败: {exc}", "error")
+        flash(f"读取安全规则失败: {friendly_error(exc)}", "error")
         return render_page(
             "security_rules",
             tenant_name=tenant_name,
@@ -1096,7 +1097,7 @@ def add_rule(tenant_name: str, security_list_id: str):
         )
         flash("安全规则已添加。", "success")
     except Exception as exc:
-        flash(f"添加规则失败: {exc}", "error")
+        flash(f"添加规则失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.security_list_rules", tenant_name=tenant_name, security_list_id=security_list_id))
 
 
@@ -1109,7 +1110,7 @@ def delete_rule(tenant_name: str, security_list_id: str, rule_type: str, rule_in
         remove_security_rule(tenant_cfg, security_list_id, rule_type, rule_index)
         flash("安全规则已删除。", "success")
     except Exception as exc:
-        flash(f"删除规则失败: {exc}", "error")
+        flash(f"删除规则失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.security_list_rules", tenant_name=tenant_name, security_list_id=security_list_id))
 
 
@@ -1130,7 +1131,7 @@ def schedule_add(tenant_name: str):
         add_schedule(tenant_name, instance_id, instance_name, action, time_hhmm, days)
         flash(f"已添加定时计划：{instance_name} 每天 {time_hhmm} {('停止' if action == 'stop' else '启动')}。", "success")
     except Exception as exc:
-        flash(f"添加定时计划失败: {exc}", "error")
+        flash(f"添加定时计划失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.list_instances", tenant_name=tenant_name) + "#schedules")
 
 
@@ -1181,7 +1182,7 @@ def console_history(tenant_name: str):
                 # 生成中：页面 5 秒自动刷新等结果
                 pass
     except Exception as exc:
-        flash(f"读取控制台历史失败: {exc}", "error")
+        flash(f"读取控制台历史失败: {friendly_error(exc)}", "error")
     return render_page(
         "console_history",
         tenant_name=tenant_name,
@@ -1203,5 +1204,5 @@ def console_history_capture(tenant_name: str, instance_id: str):
         flash(f"已发起抓取（状态 {result['state']}），稍候查看内容。", "success")
         return redirect(url_for("tenant.console_history", tenant_name=tenant_name, history_id=result["id"]))
     except Exception as exc:
-        flash(f"抓取控制台历史失败: {exc}", "error")
+        flash(f"抓取控制台历史失败: {friendly_error(exc)}", "error")
         return redirect(url_for("tenant.console_history", tenant_name=tenant_name))

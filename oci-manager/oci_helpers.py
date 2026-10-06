@@ -3,8 +3,9 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import os
+import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import oci
 
@@ -39,6 +40,75 @@ def build_config(tenant_cfg: dict[str, Any]) -> dict[str, str]:
 
 def client_kwargs() -> dict[str, Any]:
     return {"timeout": (OCI_CONNECT_TIMEOUT, OCI_READ_TIMEOUT)}
+
+
+# client 实例缓存：每次新建 client，SDK 都要读盘解析 PEM 私钥并建连接池，
+# 实例列表页一屏就是几十次。键带私钥文件 mtime_ns，轮换密钥（重写文件）后自动换新。
+_CLIENT_CACHE: dict[tuple, Any] = {}
+_CLIENT_CACHE_LOCK = threading.Lock()
+
+
+def _client_cache_key(tenant_cfg: dict[str, Any], kind: str) -> tuple | None:
+    key_path = _resolve_key_path(tenant_cfg)
+    if not key_path:
+        return None
+    try:
+        mtime_ns = Path(key_path).stat().st_mtime_ns
+    except OSError:
+        return None
+    return (
+        kind,
+        tenant_cfg.get("tenant_id", ""),
+        tenant_cfg.get("user_id", ""),
+        tenant_cfg.get("fingerprint", ""),
+        tenant_cfg.get("region", ""),
+        key_path,
+        mtime_ns,
+    )
+
+
+def get_cached_client(kind: str, tenant_cfg: dict[str, Any], factory: Callable[[], Any]) -> Any:
+    """按（租户身份 + 私钥文件指纹）缓存 client 实例。
+
+    拿不到缓存键（私钥不存在等）时退化为直接构建，行为与旧版一致。
+    """
+    key = _client_cache_key(tenant_cfg, kind)
+    if key is None:
+        return factory()
+    with _CLIENT_CACHE_LOCK:
+        client = _CLIENT_CACHE.get(key)
+        if client is None:
+            client = factory()
+            _CLIENT_CACHE[key] = client
+        return client
+
+
+def friendly_error(exc: BaseException) -> str:
+    """把 OCI ServiceError 映射成可读中文短句；非 OCI 异常原样返回。
+
+    之前所有路由直接 str(exc)，配额不足/名称冲突/权限问题在用户眼里是同一条
+    带 OCID 的英文长串。"""
+    try:
+        from oci.exceptions import ServiceError
+    except Exception:  # pragma: no cover
+        return str(exc)
+    if not isinstance(exc, ServiceError):
+        return str(exc)
+    mapping = {
+        400: "请求参数不正确",
+        401: "认证失败，请检查 API Key、指纹与用户 OCID",
+        403: "权限不足（IAM 策略拒绝该操作）",
+        404: "资源不存在或已被删除",
+        409: "资源状态冲突或名称已存在",
+        429: "请求过于频繁（被限流），请稍后重试",
+    }
+    status = getattr(exc, "status", None)
+    base = mapping.get(status, f"OCI 服务错误 (HTTP {status})")
+    code = getattr(exc, "code", "") or ""
+    message = (getattr(exc, "message", "") or "").strip()
+    detail = f" [{code}]" if code else ""
+    extra = f"：{message[:160]}" if message else ""
+    return f"{base}{detail}{extra}"
 
 
 def list_all(func: Any, *args: Any, **kwargs: Any) -> list[Any]:
@@ -79,19 +149,19 @@ def find_tenant_config(tenant_name: str) -> dict[str, Any] | None:
 
 
 def get_identity_client(tenant_cfg: dict[str, Any]) -> oci.identity.IdentityClient:
-    return oci.identity.IdentityClient(build_config(tenant_cfg), **client_kwargs())
+    return get_cached_client("identity", tenant_cfg, lambda: oci.identity.IdentityClient(build_config(tenant_cfg), **client_kwargs()))
 
 
 def get_compute_client(tenant_cfg: dict[str, Any]) -> oci.core.ComputeClient:
-    return oci.core.ComputeClient(build_config(tenant_cfg), **client_kwargs())
+    return get_cached_client("compute", tenant_cfg, lambda: oci.core.ComputeClient(build_config(tenant_cfg), **client_kwargs()))
 
 
 def get_network_client(tenant_cfg: dict[str, Any]) -> oci.core.VirtualNetworkClient:
-    return oci.core.VirtualNetworkClient(build_config(tenant_cfg), **client_kwargs())
+    return get_cached_client("network", tenant_cfg, lambda: oci.core.VirtualNetworkClient(build_config(tenant_cfg), **client_kwargs()))
 
 
 def get_block_client(tenant_cfg: dict[str, Any]) -> oci.core.BlockstorageClient:
-    return oci.core.BlockstorageClient(build_config(tenant_cfg), **client_kwargs())
+    return get_cached_client("block", tenant_cfg, lambda: oci.core.BlockstorageClient(build_config(tenant_cfg), **client_kwargs()))
 
 
 def validate_cidr(value: str) -> None:

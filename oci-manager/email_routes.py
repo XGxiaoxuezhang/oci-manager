@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from oci_helpers import friendly_error
 from flask import Blueprint, flash, redirect, request, url_for
 
 from email_service import create_email_domain, create_sender, delete_sender, email_context, send_test_email
@@ -30,7 +31,7 @@ def email_home(tenant_name: str):
         context = run_with_timeout(8, email_context, tenant_cfg)
         return render_page("email", tenant_name=tenant_name, **context)
     except Exception as exc:
-        flash(f"读取邮件配置失败：{exc}", "error")
+        flash(f"读取邮件配置失败：{friendly_error(exc)}", "error")
         return render_page(
             "email",
             tenant_name=tenant_name,
@@ -58,7 +59,7 @@ def email_export(tenant_name: str):
             return send_csv(f"{tenant_name}-email-dkims.csv", ["domain", "name", "state", "cname_record_value", "txt_record_value", "created", "id"], context["dkims"])
         return send_csv(f"{tenant_name}-email-senders.csv", ["email_address", "state", "email_ip_pool_id", "created", "id"], context["senders"])
     except Exception as exc:
-        flash(f"导出邮件配置失败：{exc}", "error")
+        flash(f"导出邮件配置失败：{friendly_error(exc)}", "error")
         return redirect(url_for("email.email_home", tenant_name=tenant_name))
 
 
@@ -71,7 +72,7 @@ def email_create_domain(tenant_name: str):
         domain = create_email_domain(tenant_cfg, request.form.get("domain_name", ""), request.form.get("description", ""))
         flash(f"邮件域名 {domain['name']} 已提交创建请求。", "success")
     except Exception as exc:
-        flash(f"创建邮件域名失败：{exc}", "error")
+        flash(f"创建邮件域名失败：{friendly_error(exc)}", "error")
     return redirect(url_for("email.email_home", tenant_name=tenant_name))
 
 
@@ -88,7 +89,7 @@ def email_create_sender(tenant_name: str):
         sender = create_sender(tenant_cfg, email_address)
         flash(f"发件人 {sender['email_address']} 已提交创建请求。", "success")
     except Exception as exc:
-        flash(f"创建发件人失败：{exc}", "error")
+        flash(f"创建发件人失败：{friendly_error(exc)}", "error")
     return redirect(url_for("email.email_home", tenant_name=tenant_name))
 
 
@@ -101,7 +102,7 @@ def email_delete_sender(tenant_name: str, sender_id: str):
         delete_sender(tenant_cfg, sender_id)
         flash("发件人删除请求已提交。", "success")
     except Exception as exc:
-        flash(f"删除发件人失败：{exc}", "error")
+        flash(f"删除发件人失败：{friendly_error(exc)}", "error")
     return redirect(url_for("email.email_home", tenant_name=tenant_name))
 
 
@@ -137,5 +138,5 @@ def email_send_test(tenant_name: str):
             "success",
         )
     except Exception as exc:
-        flash(f"发送测试邮件失败：{exc}", "error")
+        flash(f"发送测试邮件失败：{friendly_error(exc)}", "error")
     return redirect(url_for("email.email_home", tenant_name=tenant_name))

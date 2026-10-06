@@ -15,7 +15,9 @@ BUCKET_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
 
 
 def get_object_storage_client(tenant_cfg: dict[str, Any]) -> oci.object_storage.ObjectStorageClient:
-    return oci.object_storage.ObjectStorageClient(build_config(tenant_cfg), **client_kwargs())
+    from oci_helpers import get_cached_client
+
+    return get_cached_client("object_storage", tenant_cfg, lambda: oci.object_storage.ObjectStorageClient(build_config(tenant_cfg), **client_kwargs()))
 
 
 def validate_bucket_name(bucket_name: str) -> str:

@@ -21,7 +21,10 @@ def checks_home():
 @check_bp.route("/checks/run", methods=["POST"])
 def checks_run():
     results = run_checks()
-    flash("巡检完成。", "success")
+    if results is None:
+        flash("巡检正在进行中，请稍后再试。", "error")
+    else:
+        flash("巡检完成。", "success")
     return redirect(url_for("check.checks_home"))
 
 

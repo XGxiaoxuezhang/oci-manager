@@ -61,21 +61,21 @@ def _run() -> None:
 
 
 def _tick(now: datetime, state: dict[str, str]) -> None:
-    # 每分钟：定时启停
+    # 每分钟：定时启停（必须留在调度线程里，窗口匹配依赖每分钟准时跑）
     _safe_run("resource_schedules", _run_resource_schedules)
 
-    # 每小时整点后首个 tick：巡检
+    # 每小时整点后首个 tick：巡检（后台线程，慢任务不占调度线程）
     hour_mark = now.strftime("%Y%m%d%H")
     if state["hour_mark"] != hour_mark:
         state["hour_mark"] = hour_mark
-        _safe_run("tenant_checks", _run_tenant_checks)
+        _spawn_once("tenant_checks", _run_tenant_checks)
 
-    # 每天 00:05 后首个 tick：成本快照
+    # 每天 00:05 后首个 tick：成本快照（后台线程）
     if now.minute >= 5:
         day_mark = now.strftime("%Y%m%d")
         if state["day_mark"] != day_mark:
             state["day_mark"] = day_mark
-            _safe_run("cost_snapshot", _run_cost_snapshot)
+            _spawn_once("cost_snapshot", _run_cost_snapshot)
 
 
 def _safe_run(name: str, func: Callable[[], None]) -> None:
@@ -83,6 +83,31 @@ def _safe_run(name: str, func: Callable[[], None]) -> None:
         func()
     except Exception:
         logger.error("任务 %s 失败:\n%s", name, traceback.format_exc())
+
+
+# 巡检/快照这类长任务（N 租户 × 15~40s）曾直接跑在唯一的调度线程里，
+# 租户一多就能吞掉整分钟的定时启停窗口。挪到独立线程，同任务不并发。
+_BG_LOCKS: dict[str, threading.Lock] = {
+    "tenant_checks": threading.Lock(),
+    "cost_snapshot": threading.Lock(),
+}
+
+
+def _spawn_once(name: str, func: Callable[[], None]) -> None:
+    lock = _BG_LOCKS[name]
+    if not lock.acquire(blocking=False):
+        logger.info("任务 %s 仍在运行，本轮跳过", name)
+        return
+
+    def runner() -> None:
+        try:
+            func()
+        except Exception:
+            logger.error("任务 %s 失败:\n%s", name, traceback.format_exc())
+        finally:
+            lock.release()
+
+    threading.Thread(target=runner, name=f"bg-{name}", daemon=True).start()
 
 
 # ---------- 任务实现 ----------
@@ -102,6 +127,10 @@ def _run_tenant_checks() -> None:
     previous = load_checks() or {}
     prev_map = {item.get("tenant_name"): item.get("status") for item in previous.get("tenants", [])}
     results = run_checks()
+    if results is None:
+        # 手动巡检正在进行，本轮跳过（下一小时会有新一轮）
+        logger.info("手动巡检进行中，定时巡检本轮跳过")
+        return
 
     changes: list[str] = []
     for item in results.get("tenants", []):

@@ -12,7 +12,9 @@ from compartment_scope import compartment_of
 
 
 def get_database_client(tenant_cfg: dict[str, str]) -> oci.database.DatabaseClient:
-    return oci.database.DatabaseClient(build_config(tenant_cfg), **client_kwargs())
+    from oci_helpers import get_cached_client
+
+    return get_cached_client("database", tenant_cfg, lambda: oci.database.DatabaseClient(build_config(tenant_cfg), **client_kwargs()))
 
 
 def _connection_rows(connection_strings: Any) -> list[dict[str, str]]:

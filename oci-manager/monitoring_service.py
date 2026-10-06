@@ -24,7 +24,13 @@ _NAMESPACE = "oci_computeagent"
 
 
 def _monitoring_client(tenant_cfg: dict[str, Any]) -> oci.monitoring.MonitoringClient:
-    return oci.monitoring.MonitoringClient(build_config(tenant_cfg), **client_kwargs())
+    from oci_helpers import get_cached_client
+
+    # monitoring 只做只读查询，这里独享自动重试（429/瞬时 5xx），
+    # 其余 client 同时承担写操作，不能盲重试以免写副作用翻倍
+    kwargs = client_kwargs()
+    kwargs["retry_strategy"] = oci.retry.DEFAULT_RETRY_STRATEGY
+    return get_cached_client("monitoring", tenant_cfg, lambda: oci.monitoring.MonitoringClient(build_config(tenant_cfg), **kwargs))
 
 
 def _summarize(client: oci.monitoring.MonitoringClient, compartment_id: str, query: str, hours: int) -> dict[str, list[float]]:

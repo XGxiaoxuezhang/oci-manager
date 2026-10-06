@@ -26,7 +26,9 @@ RANGE_OPTIONS = [
 
 
 def get_audit_client(tenant_cfg: dict[str, Any]) -> oci.audit.AuditClient:
-    return oci.audit.AuditClient(build_config(tenant_cfg), **client_kwargs())
+    from oci_helpers import get_cached_client
+
+    return get_cached_client("audit", tenant_cfg, lambda: oci.audit.AuditClient(build_config(tenant_cfg), **client_kwargs()))
 
 
 def _rfc3339(value: datetime) -> str:

@@ -58,6 +58,30 @@ def load_launch_tasks_from_db() -> bool:
     return True
 
 
+def _upsert_tasks(conn, payload: dict[str, dict[str, Any]]) -> None:
+    for task_id, task in payload.items():
+        conn.execute(
+            """
+            INSERT INTO launch_tasks (id, tenant_name, status, created_at, updated_at, task_json)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                tenant_name=excluded.tenant_name,
+                status=excluded.status,
+                created_at=excluded.created_at,
+                updated_at=excluded.updated_at,
+                task_json=excluded.task_json
+            """,
+            (
+                task_id,
+                task.get("tenant_name", "-"),
+                task.get("status", "-"),
+                task.get("created_at", ""),
+                task.get("updated_at", ""),
+                json.dumps(task, ensure_ascii=False, separators=(",", ":")),
+            ),
+        )
+
+
 def save_launch_tasks() -> None:
     """把任务表整体写入 SQLite。
 
@@ -68,34 +92,34 @@ def save_launch_tasks() -> None:
     整个流程（取快照 + 写库）都持 TASK_LOCK：TASK_LOCK 是 RLock，update_task /
     append_task_log 持锁调用这里也不会死锁；锁内写库保证两个线程的落盘顺序
     与内存修改顺序一致，否则快照乱序会让重启后恢复出旧状态。
+
+    高频路径（状态变更/追加日志）请用 save_launch_task，只写单行。
     """
     with TASK_LOCK:
         payload = {task_id: task for task_id, task in LAUNCH_TASKS.items()}
         try:
             with connect() as conn:
-                for task_id, task in payload.items():
-                    conn.execute(
-                        """
-                        INSERT INTO launch_tasks (id, tenant_name, status, created_at, updated_at, task_json)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(id) DO UPDATE SET
-                            tenant_name=excluded.tenant_name,
-                            status=excluded.status,
-                            created_at=excluded.created_at,
-                            updated_at=excluded.updated_at,
-                            task_json=excluded.task_json
-                        """,
-                        (
-                            task_id,
-                            task.get("tenant_name", "-"),
-                            task.get("status", "-"),
-                            task.get("created_at", ""),
-                            task.get("updated_at", ""),
-                            json.dumps(task, ensure_ascii=False, separators=(",", ":")),
-                        ),
-                    )
+                _upsert_tasks(conn, payload)
         except Exception as exc:
             # 不静默：任务日志是排查抢实例失败的唯一线索，丢了必须让人看见
+            print(f"[launch_manager] 保存任务失败: {exc}", flush=True)
+
+
+def save_launch_task(task_id: str) -> None:
+    """只写单个任务行。
+
+    每次 append 日志都全表 upsert 的话，任务一多、日志一长，单次写事务会
+    显著变长——这是 SQLite "database is locked" 的集中来源。
+    """
+    with TASK_LOCK:
+        task = LAUNCH_TASKS.get(task_id)
+        if task is None:
+            return
+        payload = {task_id: task}
+        try:
+            with connect() as conn:
+                _upsert_tasks(conn, payload)
+        except Exception as exc:
             print(f"[launch_manager] 保存任务失败: {exc}", flush=True)
 
 
@@ -117,7 +141,7 @@ def update_task(task_id: str, **kwargs: Any) -> None:
         if task is not None:
             task.update(kwargs)
             task["updated_at"] = now_iso()
-    save_launch_tasks()
+    save_launch_task(task_id)
 
 
 def clear_finished_tasks(tenant_name: str) -> int:
@@ -147,8 +171,10 @@ def append_task_log(task_id: str, message: str) -> None:
         if task is None:
             return
         task.setdefault("logs", []).append(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
+        # 日志永不截断的话，9999 次尝试的任务能积累几万条，每次追加都是全量 JSON 重写
+        task["logs"] = task["logs"][-200:]
         task["updated_at"] = now_iso()
-    save_launch_tasks()
+    save_launch_task(task_id)
 
 
 def filtered_tasks(tenant_name: str) -> list[dict[str, Any]]:

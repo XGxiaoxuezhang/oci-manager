@@ -15,11 +15,15 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def get_email_client(tenant_cfg: dict[str, Any]) -> oci.email.EmailClient:
-    return oci.email.EmailClient(build_config(tenant_cfg), **client_kwargs())
+    from oci_helpers import get_cached_client
+
+    return get_cached_client("email", tenant_cfg, lambda: oci.email.EmailClient(build_config(tenant_cfg), **client_kwargs()))
 
 
 def get_email_dp_client(tenant_cfg: dict[str, Any]) -> oci.email_data_plane.EmailDPClient:
-    return oci.email_data_plane.EmailDPClient(build_config(tenant_cfg), **client_kwargs())
+    from oci_helpers import get_cached_client
+
+    return get_cached_client("email_dp", tenant_cfg, lambda: oci.email_data_plane.EmailDPClient(build_config(tenant_cfg), **client_kwargs()))
 
 
 def validate_email_address(value: str, field_name: str = "邮箱") -> str:

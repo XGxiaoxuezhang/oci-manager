@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from typing import Any
 
 from oci_helpers import find_tenant_config, get_identity_client
@@ -13,8 +14,21 @@ from timeout_utils import run_with_timeout
 # （定时启停 / 成本快照）都会静默失效。所以每个租户都必须有独立的等待上限。
 _CHECK_TIMEOUT_SECONDS = 15
 
+# 手动巡检（请求线程）与定时巡检（调度线程）互斥：并发会双份 OCI 调用 + checks.json 双写
+_RUN_LOCK = threading.Lock()
 
-def run_checks() -> dict[str, Any]:
+
+def run_checks() -> dict[str, Any] | None:
+    """跑一轮全租户巡检；已有巡检在跑时返回 None。"""
+    if not _RUN_LOCK.acquire(blocking=False):
+        return None
+    try:
+        return _run_checks_locked()
+    finally:
+        _RUN_LOCK.release()
+
+
+def _run_checks_locked() -> dict[str, Any]:
     results = {"time": now_iso(), "tenants": []}
     for tenant_name in load_tenants():
         item: dict[str, Any] = {"tenant_name": tenant_name, "status": "ok", "message": "API 连通正常"}

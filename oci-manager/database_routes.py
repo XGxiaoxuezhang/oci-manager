@@ -3,6 +3,7 @@ from __future__ import annotations
 from io import BytesIO
 from typing import Any
 
+from oci_helpers import friendly_error
 from flask import Blueprint, flash, redirect, request, send_file, url_for
 
 from database_service import (
@@ -57,7 +58,7 @@ def databases_home(tenant_name: str):
         context = run_with_timeout(8, list_autonomous_databases_context, tenant_cfg, database_id)
         return render_page("databases", tenant_name=tenant_name, **context)
     except Exception as exc:
-        flash(f"读取自治数据库失败：{exc}", "error")
+        flash(f"读取自治数据库失败：{friendly_error(exc)}", "error")
         return render_page(
             "databases",
             tenant_name=tenant_name,
@@ -83,7 +84,7 @@ def databases_export(tenant_name: str):
             context["autonomous_databases"],
         )
     except Exception as exc:
-        flash(f"导出数据库失败：{exc}", "error")
+        flash(f"导出数据库失败：{friendly_error(exc)}", "error")
         return redirect(url_for("database.databases_home", tenant_name=tenant_name))
 
 
@@ -92,7 +93,7 @@ def _render_databases_with_form(tenant_name: str, tenant_cfg: dict[str, Any], fo
     try:
         context = run_with_timeout(8, list_autonomous_databases_context, tenant_cfg, None)
     except Exception as exc:
-        flash(f"读取自治数据库失败：{exc}", "error")
+        flash(f"读取自治数据库失败：{friendly_error(exc)}", "error")
         context = {
             "autonomous_databases": [],
             "selected_database": None,
@@ -156,7 +157,7 @@ def databases_create(tenant_name: str):
         suffix = " 免费层已固定为 1 核 / 20 GB。" if result["is_free_tier"] else ""
         flash(f"数据库 {result['display_name']} 创建请求已提交。{suffix}", "success")
     except Exception as exc:
-        flash(f"创建自治数据库失败：{exc}", "error")
+        flash(f"创建自治数据库失败：{friendly_error(exc)}", "error")
         return _render_databases_with_form(tenant_name, tenant_cfg, request.form)
 
 
@@ -171,7 +172,7 @@ def databases_wallet(tenant_name: str, database_id: str):
         filename = f"adb-wallet-{database_id[-8:]}.zip"
         return send_file(BytesIO(payload), as_attachment=True, download_name=filename, mimetype="application/zip")
     except Exception as exc:
-        flash(f"下载 Wallet 失败：{exc}", "error")
+        flash(f"下载 Wallet 失败：{friendly_error(exc)}", "error")
         return redirect(url_for("database.databases_home", tenant_name=tenant_name, database_id=database_id))
 
 
@@ -184,7 +185,7 @@ def databases_start(tenant_name: str, database_id: str):
         start_autonomous_database(tenant_cfg, database_id)
         flash("启动请求已提交。", "success")
     except Exception as exc:
-        flash(f"启动自治数据库失败：{exc}", "error")
+        flash(f"启动自治数据库失败：{friendly_error(exc)}", "error")
     return redirect(url_for("database.databases_home", tenant_name=tenant_name, database_id=database_id))
 
 
@@ -197,7 +198,7 @@ def databases_stop(tenant_name: str, database_id: str):
         stop_autonomous_database(tenant_cfg, database_id)
         flash("停止请求已提交。", "success")
     except Exception as exc:
-        flash(f"停止自治数据库失败：{exc}", "error")
+        flash(f"停止自治数据库失败：{friendly_error(exc)}", "error")
     return redirect(url_for("database.databases_home", tenant_name=tenant_name, database_id=database_id))
 
 
@@ -210,7 +211,7 @@ def databases_backup(tenant_name: str, database_id: str):
         backup_id = create_autonomous_database_backup(tenant_cfg, database_id, request.form.get("display_name", ""))
         flash(f"手动备份请求已提交：{backup_id or '-'}", "success")
     except Exception as exc:
-        flash(f"创建手动备份失败：{exc}", "error")
+        flash(f"创建手动备份失败：{friendly_error(exc)}", "error")
     return redirect(url_for("database.databases_home", tenant_name=tenant_name, database_id=database_id))
 
 
@@ -229,5 +230,5 @@ def databases_delete(tenant_name: str, database_id: str):
         delete_autonomous_database(tenant_cfg, database_id)
         flash(f"数据库 {expected_name} 删除请求已提交。", "success")
     except Exception as exc:
-        flash(f"删除自治数据库失败：{exc}", "error")
+        flash(f"删除自治数据库失败：{friendly_error(exc)}", "error")
     return redirect(url_for("database.databases_home", tenant_name=tenant_name))

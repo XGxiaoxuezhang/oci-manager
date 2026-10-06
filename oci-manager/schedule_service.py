@@ -13,7 +13,7 @@ from typing import Any
 from db import connect
 from notify import notify
 from storage import now_iso
-from timeout_utils import run_with_timeout
+from timeout_utils import TimedCallError, run_with_timeout
 
 logger = logging.getLogger("scheduler")
 
@@ -117,12 +117,18 @@ def _matches_today(days: str, weekday: int) -> bool:
 
 
 def run_due_schedules(now: datetime | None = None) -> list[dict[str, Any]]:
-    """执行所有到点的计划。scheduler 每分钟调用。
+    """执行到点（含错过补跑）的计划。scheduler 每分钟调用。
 
-    last_run_date 防止同一计划在同一天重复执行；
-    时间窗口取当前分钟（tick 间隔 30 秒，每分钟最多命中一次）。
+    窗口匹配：查「今天还没跑、时间 <= 当前」的计划按时间升序补跑——服务停机、
+    桌面睡眠或长巡检挤占 tick 跨过计划时间后，下一次 tick 会补上，而不是当天
+    静默丢失（旧实现精确匹配当前分钟，错过即丢）。
+
+    last_run_date 在执行后写入：执行后、写标记前崩溃最多重跑一次，而
+    _execute_schedule 对已处于目标状态的实例会跳过，重跑无副作用；反过来
+    「先标记后执行」在标记与执行之间崩溃会静默漏跑一整天。执行失败也写标记：
+    失败会发通知，逐分钟重试只会变成通知轰炸。
     """
-    from oci_helpers import find_tenant_config
+    from oci_helpers import find_tenant_config, friendly_error
 
     now = now or datetime.now()
     today = now.strftime("%Y-%m-%d")
@@ -130,45 +136,65 @@ def run_due_schedules(now: datetime | None = None) -> list[dict[str, Any]]:
     weekday = now.weekday()
 
     with connect() as conn:
-        due = conn.execute(
-            "SELECT * FROM resource_schedules WHERE enabled = 1 AND time_hhmm = ? AND last_run_date != ?",
-            (hhmm, today),
+        rows = conn.execute(
+            "SELECT * FROM resource_schedules WHERE enabled = 1 AND last_run_date != ? ORDER BY time_hhmm",
+            (today,),
         ).fetchall()
 
     executed: list[dict[str, Any]] = []
-    for row in due:
+    for row in rows:
         row = dict(row)
+        if row["time_hhmm"] > hhmm:
+            break  # 已按时间升序，后面的还没到点
         if not _matches_today(row["days"], weekday):
             continue
-        # 先标记，避免执行失败后反复重试
-        with connect() as conn:
-            conn.execute(
-                "UPDATE resource_schedules SET last_run_date = ? WHERE id = ?",
-                (today, row["id"]),
-            )
         tenant_cfg = find_tenant_config(row["tenant_name"])
         if tenant_cfg is None:
-            logger.warning("定时计划 %s：租户 %s 不存在，已跳过", row["id"], row["tenant_name"])
+            logger.warning("定时计划 %s：租户 %s 不存在，标记跳过", row["id"], row["tenant_name"])
+            _mark_run(row["id"], today)
             continue
         action_label = _ACTION_LABELS.get(row["action"], row["action"])
         try:
             outcome = run_with_timeout(_SCHEDULE_TIMEOUT_SECONDS, _execute_schedule, tenant_cfg, row)
-            if outcome == "skipped":
-                logger.info("定时计划 %s：%s 已处于目标状态，跳过", row["id"], row["instance_name"])
-                continue
-            executed.append({**row, "result": "ok"})
+        except TimedCallError:
+            # instance_action 是写操作：超时只代表不再等待，底层调用可能已生效。
+            # 不能说"失败"诱导用户重复操作；标记照写，同一天不会再跑。
+            logger.error("定时计划 %s 执行超时", row["id"])
+            _mark_run(row["id"], today)
+            executed.append({**row, "result": "timeout"})
             notify(
-                "定时任务已执行",
-                f"[{row['tenant_name']}] {row['instance_name']} {action_label}成功。",
+                "定时任务结果未知",
+                f"[{row['tenant_name']}] {row['instance_name']} {action_label}已提交但超时，结果未知，请到实例页确认。",
             )
+            continue
         except Exception as exc:
             logger.error("定时计划 %s 执行失败: %s", row["id"], exc)
+            _mark_run(row["id"], today)
             executed.append({**row, "result": str(exc)})
             notify(
                 "定时任务执行失败",
-                f"[{row['tenant_name']}] {row['instance_name']} {action_label}失败: {exc}",
+                f"[{row['tenant_name']}] {row['instance_name']} {action_label}失败: {friendly_error(exc)}",
             )
+            continue
+        if outcome == "skipped":
+            logger.info("定时计划 %s：%s 已处于目标状态，跳过", row["id"], row["instance_name"])
+            _mark_run(row["id"], today)
+            continue
+        _mark_run(row["id"], today)
+        executed.append({**row, "result": "ok"})
+        notify(
+            "定时任务已执行",
+            f"[{row['tenant_name']}] {row['instance_name']} {action_label}成功。",
+        )
     return executed
+
+
+def _mark_run(schedule_id: int, today: str) -> None:
+    with connect() as conn:
+        conn.execute(
+            "UPDATE resource_schedules SET last_run_date = ? WHERE id = ?",
+            (today, schedule_id),
+        )
 
 
 def _execute_schedule(tenant_cfg: dict[str, Any], row: dict[str, Any]) -> str:
