@@ -180,3 +180,25 @@ def send_test_email(
         "envelope_id": getattr(payload, "envelope_id", "") or "",
         "suppressed_recipients": [item for item in suppressed if item],
     }
+
+
+def delete_email_domain(tenant_cfg: dict[str, Any], domain_id: str) -> None:
+    """删除邮件域名；先清掉非 ACTIVE 的 DKIM（激活中的 DKIM 会挡住域名删除）。"""
+    client = get_email_client(tenant_cfg)
+    try:
+        for dkim in list_all(client.list_dkims, email_domain_id=domain_id):
+            if getattr(dkim, "lifecycle_state", "") != "ACTIVE":
+                try:
+                    client.delete_dkim(dkim.id)
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    client.delete_email_domain(domain_id)
+
+
+def create_dkim(tenant_cfg: dict[str, Any], domain_id: str) -> dict[str, Any]:
+    """为已有域名补建 DKIM 记录（创建域名未自动生成时用）。"""
+    client = get_email_client(tenant_cfg)
+    dkim = client.create_dkim(oci.email.models.CreateDkimDetails(email_domain_id=domain_id)).data
+    return _dkim_row("", dkim)

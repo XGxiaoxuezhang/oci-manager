@@ -3,7 +3,15 @@ from __future__ import annotations
 from oci_helpers import friendly_error
 from flask import Blueprint, flash, redirect, request, url_for
 
-from email_service import create_email_domain, create_sender, delete_sender, email_context, send_test_email
+from email_service import (
+    create_dkim,
+    create_email_domain,
+    create_sender,
+    delete_email_domain,
+    delete_sender,
+    email_context,
+    send_test_email,
+)
 from export_utils import send_csv
 from oci_helpers import build_dashboard_cards
 from rendering import render_page
@@ -139,4 +147,29 @@ def email_send_test(tenant_name: str):
         )
     except Exception as exc:
         flash(f"发送测试邮件失败：{friendly_error(exc)}", "error")
+    return redirect(url_for("email.email_home", tenant_name=tenant_name))
+
+@email_bp.route("/tenant/<tenant_name>/email/domains/<domain_id>/delete", methods=["POST"])
+def email_delete_domain(tenant_name: str, domain_id: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        delete_email_domain(tenant_cfg, domain_id)
+        flash("邮件域名已删除。", "success")
+    except Exception as exc:
+        flash(f"删除邮件域名失败：{friendly_error(exc)}", "error")
+    return redirect(url_for("email.email_home", tenant_name=tenant_name))
+
+
+@email_bp.route("/tenant/<tenant_name>/email/domains/<domain_id>/create-dkim", methods=["POST"])
+def email_create_dkim(tenant_name: str, domain_id: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        create_dkim(tenant_cfg, domain_id)
+        flash("已创建 DKIM 记录，请按 DKIM 列表里的 CNAME/TXT 值配置 DNS。", "success")
+    except Exception as exc:
+        flash(f"创建 DKIM 失败：{friendly_error(exc)}", "error")
     return redirect(url_for("email.email_home", tenant_name=tenant_name))

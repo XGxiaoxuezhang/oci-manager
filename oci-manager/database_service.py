@@ -1,14 +1,58 @@
 from __future__ import annotations
 
+import threading
+import time
+
 import ipaddress
 import re
 from typing import Any
 
 import oci
 
+from notify import notify
 from oci_helpers import build_config, client_kwargs, list_all
 from storage import fmt_dt
 from compartment_scope import compartment_of
+
+
+_PROVISION_WATCHERS: set[str] = set()
+_PROVISION_WATCH_LOCK = threading.Lock()
+_PROVISION_TERMINAL_STATES = {"AVAILABLE", "FAILED", "RESTORE_FAILED", "TERMINATED", "BACKUP_FAILED"}
+
+
+def spawn_provision_watcher(tenant_cfg: dict[str, Any], database_id: str, display_name: str, tenant_name: str) -> None:
+    """后台轮询创建中的自治数据库，到终态发通知。
+
+    PROVISIONING 常要几十分钟，之前只 flash 一句"已提交"，用户无从得知结果。
+    同一数据库只挂一个 watcher；进程重启 watcher 丢失（页面仍会显示当前状态）。
+    """
+    with _PROVISION_WATCH_LOCK:
+        if database_id in _PROVISION_WATCHERS:
+            return
+        _PROVISION_WATCHERS.add(database_id)
+
+    def watch() -> None:
+        for _ in range(90):  # 20s × 90 = 30 分钟
+            time.sleep(20)
+            try:
+                state = get_database_client(tenant_cfg).get_autonomous_database(database_id).data.lifecycle_state
+            except Exception as exc:
+                print(f"[database_service] 轮询 {display_name} 状态失败: {exc}", flush=True)
+                continue
+            if state not in _PROVISION_TERMINAL_STATES:
+                continue
+            if state == "AVAILABLE":
+                notify("自治数据库创建完成", f"[{tenant_name}] {display_name} 已可用。", {"tenant_name": tenant_name, "database_id": database_id})
+            else:
+                notify("自治数据库创建失败", f"[{tenant_name}] {display_name} 进入状态 {state}。", {"tenant_name": tenant_name, "database_id": database_id})
+            with _PROVISION_WATCH_LOCK:
+                _PROVISION_WATCHERS.discard(database_id)
+            return
+        with _PROVISION_WATCH_LOCK:
+            _PROVISION_WATCHERS.discard(database_id)
+        notify("自治数据库状态未知", f"[{tenant_name}] {display_name} 创建 30 分钟后仍未到终态，请到页面查看。", {"tenant_name": tenant_name, "database_id": database_id})
+
+    threading.Thread(target=watch, daemon=True, name=f"adb-watch-{database_id[:12]}").start()
 
 
 def get_database_client(tenant_cfg: dict[str, str]) -> oci.database.DatabaseClient:

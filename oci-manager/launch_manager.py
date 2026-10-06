@@ -309,6 +309,25 @@ def launch_worker(task_id: str, tenant_cfg: dict[str, Any], form: dict[str, Any]
         notify("OCI 创建任务失败", f"{task_id}: {exc}", {"tenant_name": tenant_cfg.get("_tenant_name")})
 
 
+def _fetch_ssh_hint(tenant_cfg: dict[str, Any], instance_id: str, attempts: int = 4) -> str:
+    """抢机成功后等公网 IP 分配，通知里直接给 SSH 命令（最多等 ~40s）。"""
+    from compartment_scope import compartment_of
+    from oci_helpers import primary_vnic
+
+    network_client = get_network_client(tenant_cfg)
+    compartment_id = compartment_of(tenant_cfg)
+    for _ in range(attempts):
+        try:
+            vnic = primary_vnic(network_client, get_compute_client(tenant_cfg), compartment_id, instance_id)
+            ip = getattr(vnic, "public_ip", None) if vnic else None
+            if ip:
+                return f"SSH: ssh opc@{ip}"
+        except Exception:
+            pass
+        time.sleep(10)
+    return "公网 IP 尚未分配，稍后到实例总览页查看。"
+
+
 def _launch_worker_impl(task_id: str, tenant_cfg: dict[str, Any], form: dict[str, Any]) -> None:
     compute_client = get_compute_client(tenant_cfg)
     attempts = bounded_int(form.get("attempts"), 60, 1, 9999)
@@ -328,7 +347,12 @@ def _launch_worker_impl(task_id: str, tenant_cfg: dict[str, Any], form: dict[str
             instance = compute_client.launch_instance(build_launch_details(tenant_cfg, form)).data
             update_task(task_id, status="success", instance_id=instance.id, instance_name=instance.display_name, finished_at=now_iso())
             append_task_log(task_id, f"创建成功：{instance.display_name} / {instance.id}")
-            notify("OCI 创建实例成功", f"{task_id}: {instance.display_name}", {"tenant_name": tenant_cfg.get("_tenant_name"), "instance_id": instance.id})
+            ssh_hint = _fetch_ssh_hint(tenant_cfg, instance.id)
+            notify(
+                "OCI 创建实例成功",
+                f"{task_id}: {instance.display_name}\n{ssh_hint}",
+                {"tenant_name": tenant_cfg.get("_tenant_name"), "instance_id": instance.id},
+            )
             return
         except Exception as exc:
             append_task_log(task_id, f"尝试失败：{exc}")

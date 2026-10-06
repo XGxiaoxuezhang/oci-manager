@@ -145,7 +145,7 @@ rclone mount {{ mount_helper.rclone_remote }}:{{ mount_helper.bucket }} X:\objec
       <button class="btn btn-primary" type="submit">应用筛选</button>
     </form>
     <div class="kv-grid" style="margin-top:16px;">
-      <div class="kv-item"><strong>筛选后对象数</strong>{{ selected_stats.object_count }}</div>
+      <div class="kv-item"><strong>筛选后对象数</strong>{{ selected_stats.object_count }}{% if objects_truncated %} <span class="badge badge-warn" title="对象数超过单次浏览上限，请用前缀缩小范围">已截断</span>{% endif %}</div>
       <div class="kv-item"><strong>筛选后容量</strong>{{ selected_stats.total_size|format_bytes }}</div>
     </div>
   </article>

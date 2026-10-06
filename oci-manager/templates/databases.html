@@ -9,6 +9,9 @@
 
 {% block content %}
 {% set cf = create_form or {} %}
+{% if selected_database and selected_database.lifecycle_state in ('PROVISIONING', 'UPDATING', 'STARTING', 'STOPPING', 'RESTORING', 'SCALE_IN_PROGRESS') %}
+<div data-auto-refresh="30" style="display:none"></div>
+{% endif %}
 <section class="metrics">
   <div class="metric"><div class="label">数据库数量</div><div class="value">{{ database_stats.total }}</div></div>
   <div class="metric"><div class="label">可用中</div><div class="value">{{ database_stats.available }}</div></div>

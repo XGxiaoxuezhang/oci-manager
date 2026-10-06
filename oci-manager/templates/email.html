@@ -129,7 +129,7 @@
   </div>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>域名</th><th>状态</th><th>DKIM</th><th>描述</th><th>创建时间</th></tr></thead>
+      <thead><tr><th>域名</th><th>状态</th><th>DKIM</th><th>描述</th><th>创建时间</th><th>操作</th></tr></thead>
       <tbody>
         {% for domain in email_domains %}
         <tr>
@@ -138,9 +138,22 @@
           <td><span class="code">{{ domain.active_dkim_id }}</span></td>
           <td>{{ domain.description or '-' }}</td>
           <td>{{ domain.created }}</td>
+          <td>
+            <div class="actions">
+              {% set domain_dkims = dkims | selectattr("domain", "equalto", domain.name) | list %}
+              {% if not domain_dkims %}
+              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/email/domains/{{ domain.id }}/create-dkim" data-confirm="为 {{ domain.name }} 补建 DKIM 记录？">
+                <button class="btn btn-secondary" type="submit">补建 DKIM</button>
+              </form>
+              {% endif %}
+              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/email/domains/{{ domain.id }}/delete" data-confirm="确认删除邮件域名 {{ domain.name }} 吗？其发件人与 DKIM 配置将不可用。">
+                <button class="btn btn-danger" type="submit">删除</button>
+              </form>
+            </div>
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="5"><div class="empty">当前没有邮件域名。</div></td></tr>
+        <tr><td colspan="6"><div class="empty">当前没有邮件域名。</div></td></tr>
         {% endfor %}
       </tbody>
     </table>
