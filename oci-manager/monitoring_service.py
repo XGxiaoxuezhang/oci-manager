@@ -15,8 +15,11 @@ from oci_helpers import build_config, client_kwargs, compartment_of
 
 _CPU_QUERY = "CpuUtilization[1h].mean()"
 _MEM_QUERY = "MemoryUtilization[1h].mean()"
-_NET_IN_QUERY = "NetworksBytesIn[5m].rate()"  # rate() 把 counter 转成 B/s；mean() 会返回累计字节数
-_NET_OUT_QUERY = "NetworksBytesOut[5m].rate()"
+# rate() 把 counter 转成 B/s；窗口取 1h 并对窗口内取 mean()，
+# 与 resolution="1h" 对齐后 [-1] 才是"最近一小时平均速率"（之前 5m 窗口配 1h 采样，
+# 取到的是上个整点处的 5 分钟瞬时速率）
+_NET_IN_QUERY = "NetworksBytesIn[1h].rate().mean()"
+_NET_OUT_QUERY = "NetworksBytesOut[1h].rate().mean()"
 _NAMESPACE = "oci_computeagent"
 
 

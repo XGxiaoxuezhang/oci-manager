@@ -162,7 +162,7 @@ def create_app() -> Flask:
 
     @app.errorhandler(413)
     def upload_too_large(error):
-        flash(f"上传内容超过 {MAX_UPLOAD_MB} MB 限制，请改用分片或缩小文件。", "error")
+        flash(f"单次上传上限 {MAX_UPLOAD_MB} MB，更大文件请用 rclone 或 S3 兼容接口。", "error")
         return redirect(request.referrer or url_for("tenant.index"))
 
     @app.get("/healthz")
@@ -183,5 +183,5 @@ if __name__ == "__main__":
     clear_broken_proxy_env()
     host = server_host()
     port = server_port()
-    print(f"OCI Manager running at http://127.0.0.1:{port}")
+    print(f"OCI Manager running at http://{host}:{port}")
     app.run(debug=debug_enabled(), host=host, port=port)

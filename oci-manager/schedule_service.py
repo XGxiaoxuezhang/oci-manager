@@ -41,7 +41,10 @@ def _norm_time(value: str) -> str:
     value = (value or "").strip()
     parts = value.split(":")
     if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
-        return f"{int(parts[0]):02d}:{int(parts[1]):02d}"
+        hour, minute = int(parts[0]), int(parts[1])
+        # "99:99" 这类值归一化后永远匹配不上 %H:%M，计划会静默永不执行
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            return f"{hour:02d}:{minute:02d}"
     return ""
 
 

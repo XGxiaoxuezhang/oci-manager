@@ -274,6 +274,16 @@ def bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
 
 
 def launch_worker(task_id: str, tenant_cfg: dict[str, Any], form: dict[str, Any]) -> None:
+    """线程入口：任何未捕获异常都不能让任务卡在 running。"""
+    try:
+        _launch_worker_impl(task_id, tenant_cfg, form)
+    except Exception as exc:
+        update_task(task_id, status="failed", last_error=str(exc), finished_at=now_iso())
+        append_task_log(task_id, f"任务异常终止：{exc}")
+        notify("OCI 创建任务失败", f"{task_id}: {exc}", {"tenant_name": tenant_cfg.get("_tenant_name")})
+
+
+def _launch_worker_impl(task_id: str, tenant_cfg: dict[str, Any], form: dict[str, Any]) -> None:
     compute_client = get_compute_client(tenant_cfg)
     attempts = bounded_int(form.get("attempts"), 60, 1, 9999)
     interval_seconds = bounded_int(form.get("interval_seconds"), 20, 5, 300)
@@ -302,6 +312,3 @@ def launch_worker(task_id: str, tenant_cfg: dict[str, Any], form: dict[str, Any]
                 notify("OCI 创建实例失败", f"{task_id}: {exc}", {"tenant_name": tenant_cfg.get("_tenant_name")})
                 return
             time.sleep(interval_seconds)
-    update_task(task_id, status="failed", finished_at=now_iso())
-    append_task_log(task_id, "任务结束，达到最大重试次数。")
-    notify("OCI 创建实例失败", f"{task_id}: 达到最大重试次数。", {"tenant_name": tenant_cfg.get("_tenant_name")})

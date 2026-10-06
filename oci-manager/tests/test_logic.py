@@ -41,7 +41,8 @@ def test_matches_today():
 def test_cache_roundtrip():
     import cache
 
-    key = ("tenant", "compartment", "instances")
+    # 真实键序是 (逻辑名, 租户, compartment)，invalidate_tenant 按第 2 段匹配
+    key = ("instances", "tenant", "compartment")
     assert cache.cache_get(key) == (False, None)
     cache.cache_set(key, [1, 2, 3], ttl=60)
     hit, value = cache.cache_get(key)
@@ -72,12 +73,12 @@ def test_cache_bypass():
 
     key = ("t3", "c3", "k3")
     cache.cache_set(key, "stale", ttl=60)
-    # bypass 时直接走 loader、且不覆盖缓存
+    # bypass 跳过读取但回写缓存：强制刷新后普通请求立刻拿到新值
     assert cache.cached(key, loader, bypass=True) == "fresh"
     hit, value = cache.cache_get(key)
-    assert hit and value == "stale"
-    # 非 bypass 时命中缓存
-    assert cache.cached(key, loader, bypass=False) == "stale"
+    assert hit and value == "fresh"
+    # 非 bypass 时命中缓存，不再调 loader
+    assert cache.cached(key, loader, bypass=False) == "fresh"
     assert len(calls) == 1
     cache.invalidate_tenant("t3")
 

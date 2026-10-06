@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
 from oci_helpers import find_tenant_config, get_identity_client
@@ -34,7 +35,11 @@ def run_checks() -> dict[str, Any]:
 
 
 def save_checks(results: dict[str, Any]) -> None:
-    CHECKS_PATH.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+    # 先写临时文件再原子替换：写一半崩溃会留下半截 JSON，
+    # load_checks 解析失败丢掉上次基线，下一轮会把全部 error 租户当"首见"重复告警
+    tmp_path = CHECKS_PATH.with_suffix(".json.tmp")
+    tmp_path.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp_path, CHECKS_PATH)
 
 
 def load_checks() -> dict[str, Any] | None:

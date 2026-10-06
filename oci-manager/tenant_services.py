@@ -481,16 +481,29 @@ def replace_public_ip(tenant_cfg: dict[str, Any], instance_id: str, release_old:
     released: list[str] = []
     release_error = ""
     if vnic.public_ip:
-        reserved_ips = list_all(network_client.list_public_ips, scope="REGION", compartment_id=compartment_of(tenant_cfg), lifetime="RESERVED")
-        current_ip = next((item for item in reserved_ips if getattr(item, "assigned_entity_id", None) == private_ip.id or item.ip_address == vnic.public_ip), None)
+        # 旧 IP 可能是 RESERVED（面板/控制台手动保留）也可能是 EPHEMERAL
+        # （控制台创建实例时的默认类型）。只查 RESERVED 会让 ephemeral 场景
+        # 解绑失败，随后 create_public_ip 因主网卡已有公网 IP 被拒。
+        candidates = list_all(network_client.list_public_ips, scope="REGION", compartment_id=compartment_of(tenant_cfg), lifetime="RESERVED")
+        if getattr(vnic, "subnet_id", None):
+            candidates += list_all(network_client.list_public_ips, scope="SUBNET", subnet_id=vnic.subnet_id, lifetime="EPHEMERAL")
+        current_ip = next((item for item in candidates if getattr(item, "assigned_entity_id", None) == private_ip.id or item.ip_address == vnic.public_ip), None)
         if current_ip:
-            network_client.update_public_ip(current_ip.id, oci.core.models.UpdatePublicIpDetails(private_ip_id=None))
-            if release_old:
+            if getattr(current_ip, "lifetime", "RESERVED") == "EPHEMERAL":
+                # ephemeral 不能解绑，只能直接删除后换新；无论是否 release_old 都必须删
                 try:
                     network_client.delete_public_ip(current_ip.id)
                     released.append(current_ip.ip_address)
                 except Exception as exc:
-                    release_error = f"旧 IP {current_ip.ip_address} 已解绑但释放失败，可在公网 IP 页手动释放：{exc}"
+                    release_error = f"旧 ephemeral IP {current_ip.ip_address} 释放失败：{exc}"
+            else:
+                network_client.update_public_ip(current_ip.id, oci.core.models.UpdatePublicIpDetails(private_ip_id=None))
+                if release_old:
+                    try:
+                        network_client.delete_public_ip(current_ip.id)
+                        released.append(current_ip.ip_address)
+                    except Exception as exc:
+                        release_error = f"旧 IP {current_ip.ip_address} 已解绑但释放失败，可在公网 IP 页手动释放：{exc}"
     new_ip = network_client.create_public_ip(
         oci.core.models.CreatePublicIpDetails(
             compartment_id=compartment_of(tenant_cfg),

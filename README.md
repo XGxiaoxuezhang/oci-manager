@@ -83,7 +83,7 @@ docker compose up -d --build
 
 默认直接运行源码时，数据会放在 `oci-manager/` 目录下。使用 `start.ps1` 或 Docker 时，数据会放在外层 `data/` 目录。
 
-`auth.yaml`、`tenants.yaml`、`app.db`、`audit.log.jsonl`、`launch_tasks.json` 和 `tenants/` 下的私钥文件都是本地数据，已经在 `.gitignore` 中忽略，不要提交到仓库。
+`auth.yaml`、`tenants.yaml`、`app.db`、`audit.log.jsonl`、`checks.json` 和 `tenants/` 下的私钥文件都是本地数据，已经在 `.gitignore` 中忽略，不要提交到仓库。
 
 ## 首次登录
 

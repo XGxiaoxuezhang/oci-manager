@@ -1,6 +1,6 @@
 """线程安全的 TTL 缓存，用于「读多写少」的 OCI 列表查询。
 
-key 建议 (tenant_name, compartment_id, name)。写操作后调 invalidate_tenant()
+key 布局为 (逻辑名, tenant_name, compartment_id)。写操作后调 invalidate_tenant()
 清该租户全部缓存；请求带 ?refresh=1 时路由设 g.cache_bypass = True 绕过。
 """
 
@@ -35,9 +35,13 @@ def cache_set(key: tuple[str, str, str], value: Any, ttl: int = DEFAULT_TTL) -> 
 
 
 def invalidate_tenant(tenant_name: str) -> None:
-    """清某租户的全部缓存（写操作后调用）。"""
+    """清某租户的全部缓存（写操作后调用）。
+
+    键的第 2 段才是租户名（第 1 段是 "instances" 这类逻辑名）；
+    之前按 k[0] 匹配永远落空，等于写操作后从不失效缓存。
+    """
     with _lock:
-        for key in [k for k in _store if k[0] == tenant_name]:
+        for key in [k for k in _store if len(k) > 1 and k[1] == tenant_name]:
             _store.pop(key, None)
 
 
@@ -67,8 +71,8 @@ def cached(key: tuple[str, str, str], loader, bypass: bool = False, ttl: int = D
            args: tuple = (), kwargs: dict | None = None):
     """标准三段式：查缓存 → miss 时加载 → 写缓存。
 
-    bypass=True 直接走 loader（不读不写缓存），用于强制刷新。
-    loader 抛异常时不写缓存。
+    bypass=True 跳过缓存读取、直接加载，但结果仍回写缓存——
+    强制刷新后下一次普通请求立刻拿到新值。loader 抛异常时不写缓存。
 
     loader 的参数通过 args/kwargs 显式传入：避免调用方忘记包 lambda
     直接传函数对象（曾因漏包导致 TypeError）。
@@ -78,6 +82,5 @@ def cached(key: tuple[str, str, str], loader, bypass: bool = False, ttl: int = D
         if hit:
             return value
     value = loader(*args, **(kwargs or {}))
-    if not bypass:
-        cache_set(key, value, ttl)
+    cache_set(key, value, ttl)
     return value

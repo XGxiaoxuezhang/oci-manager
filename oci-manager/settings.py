@@ -14,7 +14,6 @@ AUTH_PATH = DATA_DIR / "auth.yaml"
 TENANT_DIR = DATA_DIR / "tenants"
 CONSOLE_KEY_DIR = DATA_DIR / "console"
 AUDIT_LOG_PATH = DATA_DIR / "audit.log.jsonl"
-LAUNCH_TASKS_PATH = DATA_DIR / "launch_tasks.json"
 CHECKS_PATH = DATA_DIR / "checks.json"
 SQLITE_PATH = DATA_DIR / "app.db"
 TENANT_DIR.mkdir(parents=True, exist_ok=True)

@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from collections import defaultdict
 from typing import Any
@@ -22,6 +23,7 @@ from compartment_scope import bind_compartment
 from oci_helpers import get_identity_client, list_all
 
 _CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+_CACHE_LOCK = threading.Lock()
 _CACHE_TTL_SECONDS = 300
 #: 树遍历的保险丝：compartment 数量与 API 调用次数上限，防止异常账号把页面拖死
 _MAX_NODES = 200
@@ -104,14 +106,17 @@ def compartment_options(tenant_cfg: dict[str, Any], force: bool = False) -> list
     查询失败时静默降级为「只有根」，绝不因为拿不到树就打断页面渲染。
     """
     key = _cache_key(tenant_cfg)
-    cached = _CACHE.get(key)
+    with _CACHE_LOCK:
+        cached = _CACHE.get(key)
     if cached and not force and time.time() - cached[0] < _CACHE_TTL_SECONDS:
         return cached[1]
     try:
         nodes = _fetch_nodes(tenant_cfg)
         options = _flatten(nodes, str(tenant_cfg.get("tenant_id") or ""))
     except Exception:
-        options = [
+        # 瞬时 IAM 抖动时降级为"只有根"，但不能把降级结果缓存 5 分钟——
+        # 否则一次失败会把 compartment 切换器钉死到 TTL 过期
+        return [
             {
                 "id": str(tenant_cfg.get("tenant_id") or ""),
                 "name": ROOT_LABEL,
@@ -120,7 +125,8 @@ def compartment_options(tenant_cfg: dict[str, Any], force: bool = False) -> list
                 "path": ROOT_LABEL,
             }
         ]
-    _CACHE[key] = (time.time(), options)
+    with _CACHE_LOCK:
+        _CACHE[key] = (time.time(), options)
     return options
 
 

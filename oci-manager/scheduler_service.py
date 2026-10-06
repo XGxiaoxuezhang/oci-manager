@@ -5,17 +5,21 @@
 - 资源定时启停（每分钟匹配计划表）
 - 成本每日快照（每天一次）
 
-单任务异常只记录，不中断调度线程。环境变量 OCI_MANAGER_SCHEDULER=0 可整体关闭。
+单任务异常只记录，不中断调度线程。环境变量 OCI_MANAGER_SCHEDULER=0 可整体关闭；
+debug 模式（Werkzeug reloader）下只在真正提供服务的子进程里启动，避免父子进程双份调度。
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 import traceback
 from datetime import datetime
 from typing import Callable
+
+from settings import env_bool
 
 logger = logging.getLogger("scheduler")
 
@@ -27,6 +31,14 @@ _start_lock = threading.Lock()
 def start_scheduler() -> None:
     """启动调度线程（幂等，多次调用只会启动一个）。"""
     global _started
+    run_main = os.environ.get("WERKZEUG_RUN_MAIN")
+    if run_main is not None and run_main != "true":
+        # debug reloader 的父进程只负责监视文件改动，不提供服务，不启动调度
+        logger.info("reloader 父进程，跳过调度线程启动")
+        return
+    if not env_bool("OCI_MANAGER_SCHEDULER", True):
+        logger.info("OCI_MANAGER_SCHEDULER=0，调度线程未启动")
+        return
     with _start_lock:
         if _started:
             return

@@ -38,6 +38,11 @@ def snapshot_all_tenants() -> list[dict[str, Any]]:
                 {**tenant_cfg, "_compartment_id": None},
             )
             save_snapshot(tenant_name, ctx.get("free_items", []))
+            # 顺手做免费额度告警：fire_budget_alerts 内部只在越线时才发通知，
+            # offline_mode 打开时 notify 自己会静默
+            from cost_service import fire_budget_alerts
+
+            fire_budget_alerts(tenant_name, ctx)
             results.append({"tenant_name": tenant_name, "items": len(ctx.get("free_items", []))})
         except Exception as exc:
             logger.error("租户 %s 成本快照失败: %s", tenant_name, exc)
