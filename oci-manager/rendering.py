@@ -9,6 +9,7 @@ from settings import LAUNCH_PRESETS
 from storage import load_tenants
 
 PAGE_TEMPLATES = {
+    "workspace": "workspace.html",
     "account": "account.html",
     "login": "login.html",
     "home": "home.html",
@@ -50,12 +51,20 @@ PAGE_TEMPLATES = {
 
 def render_page(page: str, **context: Any):
     tenants = load_tenants()
+    tenant_options = sorted(tenants.keys())
+    # 侧栏与"按租户进入"的缺省租户：显式传入 > session 里最近使用的租户 > 空。
+    # 这只是导航缺省值，操作上下文永远以 URL 里的租户为准。
+    tenant_name = context.pop("tenant_name", None) or ""
+    if not tenant_name:
+        last = session.get("last_tenant")
+        tenant_name = last if last in tenant_options else ""
     return render_template(
         PAGE_TEMPLATES.get(page, f"{page}.html"),
         page=page,
         current_user=session.get("username"),
         offline_mode=offline_mode_enabled(),
         launch_presets=LAUNCH_PRESETS,
-        tenant_options=sorted(tenants.keys()),
+        tenant_options=tenant_options,
+        tenant_name=tenant_name,
         **context,
     )

@@ -70,6 +70,12 @@
   document.querySelectorAll("[data-tenant-switch]").forEach(function (select) {
     select.addEventListener("change", function () {
       if (select.value) {
+        var baseUrl = select.getAttribute("data-tenant-base");
+        if (baseUrl) {
+          // 全局页（/cost、/checks/idle 等）：租户走 ?tenant= 参数
+          window.location.href = baseUrl + "?tenant=" + encodeURIComponent(select.value);
+          return;
+        }
         var modulePath = select.getAttribute("data-module-path") || "instances";
         window.location.href = "/tenant/" + encodeURIComponent(select.value) + "/" + modulePath;
       }

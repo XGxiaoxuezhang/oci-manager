@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from flask import Blueprint, request
+from flask import Blueprint, request, session
 
 from cost_service import budget_alerts, cost_rules, free_tier_context
 from cost_snapshot_service import trend_context
@@ -17,8 +17,12 @@ cost_bp = Blueprint("cost", __name__)
 def cost_home():
     tenants = load_tenants()
     selected_tenant = request.args.get("tenant", "").strip()
-    if not selected_tenant and tenants:
-        selected_tenant = sorted(tenants.keys())[0]
+    if not selected_tenant:
+        # 缺省跟随"最近使用的租户"，其次按名称取第一个
+        last = session.get("last_tenant")
+        selected_tenant = last if last in tenants else (sorted(tenants.keys())[0] if tenants else "")
+    if selected_tenant:
+        session["last_tenant"] = selected_tenant
     context = {"free_items": [], "risks": [], "load_error": "", "budget_alerts": []}
     if selected_tenant:
         raw_cfg = find_tenant_config(selected_tenant)

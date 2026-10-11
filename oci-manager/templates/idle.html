@@ -8,16 +8,15 @@
 <section class="section-head">
   <div>
     <h2>闲置资源</h2>
-    <div class="section-sub">默认读取第一个租户，可切换其他租户。</div>
+    <div class="section-sub">切换租户即时生效。</div>
   </div>
-  <form method="get" action="/checks/idle" class="actions">
-    <select class="tenant-switch" name="tenant">
-      {% for name in tenant_names %}
-      <option value="{{ name }}" {{ 'selected' if selected_tenant == name }}>{{ name }}</option>
+  <div class="actions">
+    <select class="tenant-switch" data-tenant-switch data-tenant-base="/checks/idle" aria-label="切换租户">
+      {% for option in tenant_options %}
+      <option value="{{ option }}" {{ 'selected' if selected_tenant == option }}>{{ option }}</option>
       {% endfor %}
     </select>
-    <button class="btn btn-secondary" type="submit">应用</button>
-  </form>
+  </div>
 </section>
 
 {% if load_error %}

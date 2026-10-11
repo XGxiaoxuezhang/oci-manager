@@ -50,7 +50,8 @@ def cache_size() -> int:
         return len(_store)
 
 
-def tenant_cached(tenant_cfg: dict[str, Any], name: str, loader, bypass: bool | None = None, ttl: int = DEFAULT_TTL):
+def tenant_cached(tenant_cfg: dict[str, Any], name: str, loader, bypass: bool | None = None,
+                  ttl: int = DEFAULT_TTL, args: tuple = (), kwargs: dict | None = None):
     """按「租户 + compartment + 逻辑名」缓存的便捷入口。
 
     bypass 默认从 flask.g.cache_bypass 取（?refresh=1），路由无需再传。
@@ -64,7 +65,7 @@ def tenant_cached(tenant_cfg: dict[str, Any], name: str, loader, bypass: bool | 
         bypass = bool(bypass)
     tenant_name = tenant_cfg.get("_tenant_name") or tenant_cfg.get("tenant_id", "-")
     compartment = tenant_cfg.get("_compartment_id") or tenant_cfg.get("tenant_id", "-")
-    return cached((name, tenant_name, compartment), loader, bypass=bypass, ttl=ttl)
+    return cached((name, tenant_name, compartment), loader, bypass=bypass, ttl=ttl, args=args, kwargs=kwargs)
 
 
 def cached(key: tuple[str, str, str], loader, bypass: bool = False, ttl: int = DEFAULT_TTL,

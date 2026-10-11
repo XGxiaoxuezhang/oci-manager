@@ -139,6 +139,43 @@ def instance_overview_context(tenants: dict[str, dict[str, Any]]) -> dict[str, A
     return {"overview_rows": rows, "overview_totals": totals}
 
 
+def workspace_context(tenant_cfg: dict[str, Any], tenant_name: str) -> dict[str, Any]:
+    """租户工作区的聚合数据。
+
+    统计复用 free_tier_context（它本来就把 compute/block/storage/database 四类
+    资源串了一遍），挂 5 分钟缓存——工作区要的是"各模块有多少东西"，
+    不是实时精确值。任务与操作记录取内存/本地库，零额外 OCI 调用。
+    """
+    from audit import list_audit_events
+    from cache import tenant_cached
+    from cost_service import free_tier_context
+    from launch_manager import filtered_tasks
+
+    stats = tenant_cached(
+        tenant_cfg,
+        "workspace",
+        free_tier_context,
+        args=(tenant_cfg,),
+        ttl=300,
+    )
+    from storage import fmt_dt
+
+    events = []
+    for event in list_audit_events(100):
+        if event.get("tenant_name") != tenant_name:
+            continue
+        event["time_text"] = fmt_dt(event.get("time"))
+        events.append(event)
+        if len(events) >= 6:
+            break
+    return {
+        "usage_items": stats.get("free_items", []),
+        "risks": stats.get("risks", []),
+        "recent_tasks": filtered_tasks(tenant_name)[:5],
+        "recent_events": events,
+    }
+
+
 def create_tenant_record(
     tenants: dict[str, dict[str, Any]],
     tenant_name: str,

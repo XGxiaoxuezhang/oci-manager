@@ -22,17 +22,21 @@
   <div class="section-head">
     <div>
       <h2>按租户进入</h2>
-      <div class="section-sub small">直接进入指定租户的实例管理页。</div>
+      <div class="section-sub small">进入租户工作区，再按模块操作。</div>
     </div>
     <a class="btn btn-ghost" href="/tenants">管理租户</a>
   </div>
   <div class="actions">
     {% for option in tenant_options %}
-    <a class="btn btn-secondary" href="/tenant/{{ option }}/instances">
-      <svg class="icon icon-sm" aria-hidden="true"><use href="#i-server"></use></svg>{{ option }}
+    <a class="btn btn-secondary" href="/tenant/{{ option }}/">
+      <svg class="icon icon-sm" aria-hidden="true"><use href="#i-tenants"></use></svg>{{ option }}
     </a>
     {% endfor %}
   </div>
+</section>
+{% else %}
+<section class="panel" style="margin-bottom:14px;">
+  <div class="empty">还没有租户配置。先点右上角「添加租户」录入 OCI API 凭据，之后这里会显示按租户的入口。</div>
 </section>
 {% endif %}
 

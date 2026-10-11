@@ -17,7 +17,7 @@
     <div class="card-title">
       <div>
         <div class="eyebrow">{{ tenant.region_label }}</div>
-        <h3>{{ tenant.name }}</h3>
+        <h3><a href="/tenant/{{ tenant.name }}/">{{ tenant.name }}</a></h3>
       </div>
     </div>
     <div class="meta-list">
@@ -26,7 +26,7 @@
       <div class="meta-row"><span class="muted">创建时间</span><span>{{ tenant.created }}</span></div>
     </div>
     <div class="tenant-actions">
-      <a class="btn btn-primary" href="/tenant/{{ tenant.name }}/instances">实例</a>
+      <a class="btn btn-primary" href="/tenant/{{ tenant.name }}/">工作区</a>
       <a class="btn btn-secondary" href="/tenant/{{ tenant.name }}/object-storage">对象存储</a>
       <a class="btn btn-secondary" href="/tenant/{{ tenant.name }}/databases">数据库</a>
       <a class="btn btn-secondary" href="/tenant/{{ tenant.name }}/email">邮件</a>

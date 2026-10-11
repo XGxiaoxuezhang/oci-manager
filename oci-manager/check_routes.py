@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from flask import Blueprint, flash, redirect, request, url_for
+from flask import Blueprint, flash, redirect, request, session, url_for
 
 from check_service import load_checks, run_checks
 from idle_service import idle_resources_context
@@ -32,8 +32,11 @@ def checks_run():
 def idle_home():
     tenants = load_tenants()
     selected_tenant = request.args.get("tenant", "").strip()
-    if not selected_tenant and tenants:
-        selected_tenant = sorted(tenants.keys())[0]
+    if not selected_tenant:
+        last = session.get("last_tenant")
+        selected_tenant = last if last in tenants else (sorted(tenants.keys())[0] if tenants else "")
+    if selected_tenant:
+        session["last_tenant"] = selected_tenant
     context = {"selected_tenant": selected_tenant, "tenant_names": sorted(tenants.keys()), "idle": None, "load_error": ""}
     if selected_tenant:
         raw_cfg = find_tenant_config(selected_tenant)

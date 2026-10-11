@@ -42,6 +42,7 @@
 {%- endmacro %}
 
 {% set switch_path = 'instances' %}
+{% if page in ['workspace'] %}{% set switch_path = '' %}{% endif %}
 {% if page in ['object_storage', 'object_preview', 'object_storage_overview'] %}{% set switch_path = 'object-storage' %}{% endif %}
 {% if page in ['databases', 'databases_overview'] %}{% set switch_path = 'databases' %}{% endif %}
 {% if page in ['email', 'email_overview'] %}{% set switch_path = 'email' %}{% endif %}
@@ -99,6 +100,7 @@
 
       <div class="nav-group">
         <div class="nav-group-title">资源</div>
+        {{ nav_item('/tenant/' ~ tenant_name ~ '/', 'tenants', '租户工作区', page == 'workspace', not tenant_name) }}
         {{ nav_item('/tenant/' ~ tenant_name ~ '/instances' if tenant_name else '/instances', 'server', '实例', page in ['instance_overview', 'instances', 'instance_edit', 'change_ip', 'rescue', 'novnc']) }}
         {{ nav_item('/tenant/' ~ tenant_name ~ '/volumes' if tenant_name else '/tenants', 'disk', '块存储', page in ['volumes'], not tenant_name) }}
         {{ nav_item('/tenant/' ~ tenant_name ~ '/object-storage' if tenant_name else '/object-storage', 'storage', '对象存储', page in ['object_storage_overview', 'object_storage', 'object_preview']) }}

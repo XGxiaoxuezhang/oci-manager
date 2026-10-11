@@ -4,7 +4,7 @@ import threading
 from uuid import uuid4
 
 from oci_helpers import friendly_error
-from flask import Blueprint, flash, redirect, request, url_for
+from flask import Blueprint, flash, redirect, request, session, url_for
 
 from audit import list_audit_events
 from export_utils import send_csv
@@ -21,6 +21,7 @@ from tenant_services import (
     console_private_key_path,
     create_console,
     create_tenant_record,
+    workspace_context,
     create_user_for_tenant,
     dashboard_context,
     delete_api_key,
@@ -89,6 +90,8 @@ def require_tenant(tenant_name: str):
     tenant_cfg = apply_session_compartment(tenant_cfg, tenant_name)
     g.tenant_cfg = tenant_cfg
     g.tenant_name = tenant_name
+    # 导航缺省值：下次落在全局页时，侧栏/入口默认指向最近使用的租户
+    session["last_tenant"] = tenant_name
     # ?refresh=1 绕过 TTL 缓存强制拉新
     g.cache_bypass = request.args.get("refresh") == "1"
     # 所有写操作都是 POST 且都走这里：请求开始即清该租户缓存，
@@ -175,6 +178,19 @@ def instance_overview():
     context["selected_tenant"] = selected_tenant
     context.update(run_with_timeout(30, instance_overview_context, tenants))
     return render_page("instance_overview", **context)
+
+
+@tenant_bp.route("/tenant/<tenant_name>/", methods=["GET"])
+def tenant_workspace(tenant_name: str):
+    """租户工作区首页：模块入口 + 该租户的额度用量与近期动态。"""
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        context = run_with_timeout(30, workspace_context, tenant_cfg, tenant_name)
+    except Exception as exc:
+        context = {"usage_items": [], "risks": [], "recent_tasks": [], "recent_events": [], "load_error": str(exc)}
+    return render_page("workspace", tenant_name=tenant_name, **context)
 
 
 @tenant_bp.route("/tenant/add", methods=["GET", "POST"])
