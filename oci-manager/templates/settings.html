@@ -54,4 +54,16 @@
     <button class="btn btn-secondary" type="submit" {{ 'disabled' if offline_mode else '' }}>发送测试通知</button>
   </form>
 </section>
+
+<section class="table-card" style="margin-top:20px;">
+  <div class="section-head"><div><h2>运维设置</h2></div></div>
+  <form method="post" action="/settings/ops">
+    <label class="check-row">
+      <input type="checkbox" name="auto_backup_enabled" value="1" {{ 'checked' if app_settings.auto_backup_enabled == '1' else '' }}>
+      <span>每日自动备份数据目录到 data/backups/（保留最近若干份）</span>
+    </label>
+    <div class="field" style="margin-top:12px;"><label>备份保留份数（1-30）</label><input name="auto_backup_keep" type="number" min="1" max="30" value="{{ app_settings.auto_backup_keep }}"></div>
+    <button class="btn btn-primary" type="submit">保存运维设置</button>
+  </form>
+</section>
 {% endblock %}

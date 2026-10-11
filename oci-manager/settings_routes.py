@@ -62,6 +62,22 @@ def notification_save():
     return redirect(url_for("settings_page.settings_home"))
 
 
+@settings_bp.route("/settings/ops", methods=["POST"])
+def ops_save():
+    keep_raw = request.form.get("auto_backup_keep", "7").strip()
+    try:
+        keep = max(1, min(30, int(keep_raw)))
+    except ValueError:
+        flash("备份保留份数必须是数字。", "error")
+        return redirect(url_for("settings_page.settings_home"))
+    settings = load_app_settings()
+    settings["auto_backup_enabled"] = "1" if request.form.get("auto_backup_enabled") else "0"
+    settings["auto_backup_keep"] = str(keep)
+    save_app_settings(settings)
+    flash("运维设置已保存。", "success")
+    return redirect(url_for("settings_page.settings_home"))
+
+
 @settings_bp.route("/settings/notification-test", methods=["POST"])
 def notification_test():
     if app_setting_enabled(load_app_settings(), "offline_mode", True):

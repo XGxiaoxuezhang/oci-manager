@@ -13,6 +13,8 @@ DEFAULT_APP_SETTINGS: dict[str, Any] = {
     "webhook_url": "",
     "ntfy_server": "",
     "ntfy_topic": "",
+    "auto_backup_enabled": "1",
+    "auto_backup_keep": "7",
 }
 
 

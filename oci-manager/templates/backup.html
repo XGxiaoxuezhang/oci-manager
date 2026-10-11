@@ -11,6 +11,9 @@
     <p class="section-sub">当前数据目录共有 {{ file_count }} 个文件。备份包可能包含私钥。</p>
     <div class="actions">
       <a class="btn btn-primary" href="/backup/export">下载备份 ZIP</a>
+      <form class="inline" method="post" action="/backup/auto-run">
+        <button class="btn btn-secondary" type="submit">立即备份到服务器</button>
+      </form>
     </div>
   </div>
 
@@ -26,4 +29,30 @@
     </form>
   </div>
 </section>
+
+{% if auto_backups %}
+<section class="table-card" style="margin-top:14px;">
+  <div class="section-head"><div><h2>服务器上的自动备份</h2><div class="section-sub">每日自动生成，保留份数可在设置页调整。</div></div></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>文件</th><th>大小</th><th>日期</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for item in auto_backups %}
+        <tr>
+          <td><code>{{ item.name }}</code></td>
+          <td>{{ item.size | filesizeformat }}</td>
+          <td>{{ item.created }}</td>
+          <td>
+            <form class="inline" method="post" action="/backup/auto-restore" data-confirm="确认从 {{ item.name }} 恢复吗？同名文件会被覆盖（登录凭据等敏感文件会跳过）。">
+              <input type="hidden" name="name" value="{{ item.name }}">
+              <button class="btn btn-warning" type="submit">恢复</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
 {% endblock %}

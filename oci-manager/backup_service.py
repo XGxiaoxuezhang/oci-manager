@@ -113,7 +113,19 @@ def backup_file_count() -> int:
 
 
 def run_scheduled_backup(keep: int = 7) -> dict[str, Any]:
-    """每日自动备份：写入 DATA_DIR/backups/，保留最近 keep 份（含当天）。"""
+    """每日自动备份：写入 DATA_DIR/backups/，保留最近 keep 份（含当天）。
+
+    开关与保留份数可在设置页在线调整（存 settings.yaml）。
+    """
+    from app_settings import app_setting_enabled, load_app_settings
+
+    settings = load_app_settings()
+    if not app_setting_enabled(settings, "auto_backup_enabled", True):
+        return {"skipped": True}
+    try:
+        keep = max(1, int(settings.get("auto_backup_keep", 7) or 7))
+    except ValueError:
+        keep = 7
     payload = create_backup_zip()
     backup_dir = DATA_DIR / "backups"
     backup_dir.mkdir(parents=True, exist_ok=True)

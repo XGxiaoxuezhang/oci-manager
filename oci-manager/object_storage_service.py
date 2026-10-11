@@ -211,17 +211,21 @@ def storage_context(tenant_cfg: dict[str, Any], namespace: str | None = None, bu
     selected_bucket = None
     object_rows: list[dict[str, Any]] = []
     objects_truncated = False
+    prefix_rows: list[str] = []
+    parent_prefix = ""
     if bucket_name:
         bucket = client.get_bucket(namespace_name=namespace_name, bucket_name=bucket_name).data
         selected_bucket = _bucket_detail(bucket)
         # 分页拉全量：list_objects 单页最多约 1000 条，之前只取第一页，
-        # 大 bucket 的列表和统计都会静默截断
+        # 大 bucket 的列表和统计都会静默截断。
+        # delimiter="/" 让返回按"目录"分层：prefixes 是子目录，objects 是当前层文件。
         start: str | None = None
         for _page in range(20):  # 2 万条封顶，防异常 bucket 拖死页面
             response = client.list_objects(
                 namespace_name=namespace_name,
                 bucket_name=bucket_name,
                 prefix=prefix or None,
+                delimiter="/",
                 fields="name,size,timeCreated,md5,timeModified,storageTier,etag",
                 limit=1000,
                 **({"start": start} if start else {}),
@@ -236,12 +240,21 @@ def storage_context(tenant_cfg: dict[str, Any], namespace: str | None = None, bu
                         "etag": getattr(item, "etag", ""),
                     }
                 )
+            for item in getattr(response.data, "prefixes", []) or []:
+                prefix_name = getattr(item, "prefix", "") or str(item)
+                if prefix_name != prefix and prefix_name not in prefix_rows:
+                    prefix_rows.append(prefix_name)
             start = getattr(response.data, "next_start_with", None) or None
             if not start:
                 break
         else:
             objects_truncated = True
         object_rows.sort(key=lambda item: item["name"].lower())
+        prefix_rows.sort()
+        # 上一级目录：backup/2026/ -> backup/
+        if prefix.endswith("/"):
+            stripped = prefix[:-1]
+            parent_prefix = stripped.rsplit("/", 1)[0] + "/" if "/" in stripped else ""
 
     total_size = sum(bucket["size"] or 0 for bucket in bucket_rows)
     total_count = sum(bucket["count"] or 0 for bucket in bucket_rows)
@@ -271,6 +284,8 @@ def storage_context(tenant_cfg: dict[str, Any], namespace: str | None = None, bu
         },
         "selected_stats": selected_stats,
         "objects_truncated": objects_truncated,
+        "prefix_rows": prefix_rows,
+        "parent_prefix": parent_prefix,
         "mount_helper": mount_helper,
     }
 

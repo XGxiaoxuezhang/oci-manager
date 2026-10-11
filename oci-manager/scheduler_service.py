@@ -17,7 +17,7 @@ import threading
 import time
 import traceback
 from datetime import datetime
-from typing import Callable
+from typing import Any, Callable
 
 from settings import env_bool
 
@@ -89,10 +89,24 @@ def _safe_run(name: str, func: Callable[[], None]) -> None:
         func()
     except Exception:
         logger.error("任务 %s 失败:\n%s", name, traceback.format_exc())
+    finally:
+        _LAST_RUNS[name] = time.strftime("%Y-%m-%d %H:%M:%S")
 
 
 # 巡检/快照这类长任务（N 租户 × 15~40s）曾直接跑在唯一的调度线程里，
 # 租户一多就能吞掉整分钟的定时启停窗口。挪到独立线程，同任务不并发。
+# 各后台任务的最近一次运行时间（含调度线程内的定时启停）
+_LAST_RUNS: dict[str, str] = {}
+
+
+def scheduler_started() -> bool:
+    return _started
+
+
+def scheduler_last_runs() -> dict[str, Any]:
+    return dict(_LAST_RUNS)
+
+
 _BG_LOCKS: dict[str, threading.Lock] = {
     "tenant_checks": threading.Lock(),
     "cost_snapshot": threading.Lock(),
@@ -113,6 +127,7 @@ def _spawn_once(name: str, func: Callable[[], None]) -> None:
         except Exception:
             logger.error("任务 %s 失败:\n%s", name, traceback.format_exc())
         finally:
+            _LAST_RUNS[name] = time.strftime("%Y-%m-%d %H:%M:%S")
             lock.release()
 
     try:
@@ -179,6 +194,9 @@ def _run_auto_backup() -> None:
 
     try:
         result = run_scheduled_backup()
+        if result.get("skipped"):
+            logger.info("自动备份已在设置中关闭，本轮跳过")
+            return
         logger.info("自动备份完成: %s (%d bytes)", result["path"], result["size"])
     except Exception as exc:
         logger.error("自动备份失败:\n%s", traceback.format_exc())

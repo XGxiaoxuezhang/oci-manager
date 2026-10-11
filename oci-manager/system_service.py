@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import platform
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,8 @@ def _status(ok: bool) -> str:
 
 
 def system_context() -> dict[str, Any]:
+    from scheduler_service import scheduler_last_runs, scheduler_started
+
     tenants = load_tenants()
     tenant_checks = []
     for name, cfg in tenants.items():
@@ -72,4 +75,13 @@ def system_context() -> dict[str, Any]:
             "status": "ok",
         },
     ]
-    return {"checks": checks, "tenant_checks": tenant_checks}
+    last_runs = scheduler_last_runs()
+    backup_files = sorted((DATA_DIR / "backups").glob("auto-*.zip")) if (DATA_DIR / "backups").exists() else []
+    latest_backup = backup_files[-1].stat().st_mtime if backup_files else None
+    background = {
+        "scheduler_started": scheduler_started(),
+        "last_runs": last_runs,
+        "backup_time": datetime.fromtimestamp(latest_backup).strftime("%Y-%m-%d %H:%M") if latest_backup else None,
+        "backup_count": len(backup_files),
+    }
+    return {"checks": checks, "tenant_checks": tenant_checks, "background": background}

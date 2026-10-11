@@ -175,6 +175,18 @@ rclone mount {{ mount_helper.rclone_remote }}:{{ mount_helper.bucket }} X:\objec
     <table>
       <thead><tr><th>名称</th><th>大小</th><th>存储层</th><th>更新时间</th><th>操作</th></tr></thead>
       <tbody>
+        {% if object_prefix %}
+        <tr class="muted">
+          <td><a href="/tenant/{{ tenant_name }}/object-storage?bucket={{ selected_bucket | urlencode }}&prefix={{ parent_prefix | urlencode }}">📁 ..（上一级）</a></td>
+          <td>-</td><td>-</td><td>-</td><td></td>
+        </tr>
+        {% endif %}
+        {% for folder in prefix_rows %}
+        <tr>
+          <td><a href="/tenant/{{ tenant_name }}/object-storage?bucket={{ selected_bucket | urlencode }}&prefix={{ folder | urlencode }}">📁 {{ folder[object_prefix | length:] if object_prefix else folder }}</a></td>
+          <td>-</td><td>目录</td><td>-</td><td></td>
+        </tr>
+        {% endfor %}
         {% for obj in objects %}
         <tr>
           <td>{{ obj.name }}</td>
