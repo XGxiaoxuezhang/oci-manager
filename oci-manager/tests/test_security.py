@@ -167,3 +167,86 @@ def test_restore_backup_zip_skips_protected_files(tmp_path, monkeypatch):
         archive.writestr("tenants/../../settings.yaml", "evil")
     with pytest.raises(ValueError, match="越界"):
         backup_service.restore_backup_zip(escaping.getvalue())
+
+
+def test_totp_rfc6238_vector():
+    """RFC 6238 官方测试向量：SHA-1、T=59、种子为 ASCII '12345678901234567890'。"""
+    import base64
+
+    import totp as totp_module
+    from unittest.mock import patch
+
+    rfc_secret = base64.b32encode(b"12345678901234567890").decode()
+    with patch.object(totp_module.time, "time", return_value=59):
+        code = totp_module._code_at(rfc_secret, 59 // 30)
+    assert code == "287082"
+    # verify 允许 ±1 窗口漂移
+    with patch.object(totp_module.time, "time", return_value=59):
+        assert totp_module.verify(rfc_secret, "287082")
+        assert totp_module.verify(rfc_secret, " 287082 ")
+        assert not totp_module.verify(rfc_secret, "000000")
+        assert not totp_module.verify(rfc_secret, "28708")
+
+
+def test_totp_rejects_garbage():
+    import base64
+
+    import totp as totp_module
+
+    rfc_secret = base64.b32encode(b"12345678901234567890").decode()
+    assert not totp_module.verify(rfc_secret, "")
+    assert not totp_module.verify(rfc_secret, "abcdef")
+    assert not totp_module.verify(rfc_secret, "12345")
+
+
+def test_two_factor_login_flow(anon_client):
+    """2FA 全流程：密码通过 → 待验证态 → 动态码 → 完全登录。"""
+    import base64
+    import time as time_mod
+    from unittest.mock import patch
+
+    import totp as totp_module
+    import yaml as yaml_mod
+    from pathlib import Path as P
+
+    with anon_client.session_transaction() as session:
+        session["csrf_token"] = "testtoken"
+
+    auth_path = P(__file__).parent / "data" / "auth.yaml"
+    data = yaml_mod.safe_load(auth_path.read_text(encoding="utf-8")) or {}
+    data["must_change_password"] = False
+    data["totp_enabled"] = True
+    data["totp_secret"] = base64.b32encode(b"12345678901234567890").decode()
+    auth_path.write_text(yaml_mod.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    try:
+        # 1) 密码通过 → 进入待验证页
+        resp = anon_client.post("/login", data={"username": "admin", "password": "admin123456", "csrf_token": "testtoken"})
+        assert resp.status_code == 302 and "/login/totp" in resp.headers["Location"]
+
+        # 2) 未完全登录时访问业务页被挡回
+        resp = anon_client.get("/tenants")
+        assert resp.status_code == 302 and "/login" in resp.headers["Location"]
+
+        # 3) 错误动态码 → 回到验证页（模拟浏览器：先取页面拿新 CSRF token）
+        import re as re_mod
+        page = anon_client.get("/login/totp")
+        csrf = re_mod.search('name="csrf-token" content="([^"]+)"', page.get_data(as_text=True)).group(1)
+        resp = anon_client.post("/login/totp", data={"code": "000000", "csrf_token": csrf})
+        assert resp.status_code == 200 and "动态码不正确" in resp.get_data(as_text=True)
+
+        # 4) 正确动态码 → 完全登录（重新取页面刷新 token）
+        page = anon_client.get("/login/totp")
+        csrf = re_mod.search('name="csrf-token" content="([^"]+)"', page.get_data(as_text=True)).group(1)
+        code = totp_module._code_at(data["totp_secret"], int(time_mod.time()) // 30)
+        with patch("auth_routes.notify") as notify:
+            resp = anon_client.post("/login/totp", data={"code": code, "csrf_token": csrf})
+        assert resp.status_code == 302 and "/login" not in resp.headers["Location"]
+        with anon_client.session_transaction() as session:
+            assert session.get("authenticated") is True
+        assert notify.called  # 新来源登录推送通知
+    finally:
+        data = yaml_mod.safe_load(auth_path.read_text(encoding="utf-8")) or {}
+        data.pop("totp_enabled", None)
+        data.pop("totp_secret", None)
+        data["must_change_password"] = False
+        auth_path.write_text(yaml_mod.safe_dump(data, allow_unicode=True), encoding="utf-8")

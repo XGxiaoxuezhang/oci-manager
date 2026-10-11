@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from flask import Blueprint
+from flask import Blueprint, request
 
 from audit import list_audit_events
 from export_utils import send_csv
@@ -11,6 +11,7 @@ from storage import fmt_dt
 ACTION_LABELS = {
     "auth.change_password": "修改登录密码",
     "auth.logout": "退出登录",
+    "auth.totp_login": "两步验证",
     "backup.backup_restore": "恢复备份",
     "check.checks_run": "运行巡检",
     "database.databases_create": "创建自治数据库",
@@ -78,11 +79,24 @@ audit_bp = Blueprint("audit", __name__)
 @audit_bp.route("/audit")
 def audit_home():
     events = list_audit_events()
+    tenant = request.args.get("tenant", "").strip()
+    keyword = request.args.get("action", "").strip().lower()
+    date_from = request.args.get("from", "").strip()
+    date_to = request.args.get("to", "").strip()
+    tenants = sorted({e.get("tenant_name", "") for e in events} - {""})
     for event in events:
         raw_action = event.get("action", "")
         event["time_text"] = fmt_dt(event.get("time"))
         event["action_label"] = ACTION_LABELS.get(raw_action, raw_action)
-    return render_page("audit", events=events)
+    if tenant:
+        events = [e for e in events if e.get("tenant_name") == tenant]
+    if keyword:
+        events = [e for e in events if keyword in e.get("action_label", "").lower() or keyword in e.get("action", "").lower()]
+    if date_from:
+        events = [e for e in events if (e.get("time") or "") >= date_from]
+    if date_to:
+        events = [e for e in events if (e.get("time") or "")[:10] <= date_to]
+    return render_page("audit", events=events, filter_tenant=tenant, filter_action=request.args.get("action", ""), filter_from=date_from, filter_to=date_to, filter_tenants=tenants)
 
 
 @audit_bp.route("/audit/export")
@@ -99,5 +113,5 @@ def audit_export():
         }
         for event in events
     ]
-    headers = ["时间", "用户", "租户", "动作", "状态", "路径"]
+    headers = ["时间", "用户", "租户", "动作", "状态", "路径"]  # noqa: 导出保持全量最近 500 条
     return send_csv("oci-manager-audit.csv", headers, rows)

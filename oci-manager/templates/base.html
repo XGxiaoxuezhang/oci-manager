@@ -1,9 +1,17 @@
 ﻿<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="auto">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="csrf-token" content="{{ csrf_token() }}">
+  <script>
+    (function () {
+      try {
+        var theme = localStorage.getItem("oci-theme") || "auto";
+        document.documentElement.setAttribute("data-theme", theme);
+      } catch (e) {}
+    })();
+  </script>
   <title>{% block title %}OCI 管理器{% endblock %}</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%231f2937'/><text x='8' y='12' font-size='9' fill='white' text-anchor='middle'>OC</text></svg>">
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
@@ -144,6 +152,9 @@
       {% if current_user %}
       {{ nav_item('/account', 'account', current_user, page == 'account') }}
       {% endif %}
+      <button class="nav-item" type="button" data-theme-toggle title="切换亮/暗色">
+        <svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg><span id="theme-toggle-label">外观：跟随系统</span>
+      </button>
       <form method="post" action="/logout">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="nav-item" type="submit">

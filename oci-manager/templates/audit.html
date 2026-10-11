@@ -8,6 +8,22 @@
 {% endblock %}
 
 {% block content %}
+<section class="panel" style="margin-bottom:14px;">
+  <form method="get" class="table-toolbar">
+    <select name="tenant" aria-label="按租户过滤">
+      <option value="">全部租户</option>
+      {% for name in filter_tenants %}
+      <option value="{{ name }}" {{ 'selected' if filter_tenant == name }}>{{ name }}</option>
+      {% endfor %}
+    </select>
+    <input type="text" name="action" value="{{ filter_action }}" placeholder="按动作筛选" aria-label="按动作筛选">
+    <input type="date" name="from" value="{{ filter_from }}" aria-label="开始日期">
+    <input type="date" name="to" value="{{ filter_to }}" aria-label="结束日期">
+    <button class="btn btn-secondary" type="submit">筛选</button>
+    <a class="btn btn-ghost" href="/audit">重置</a>
+  </form>
+</section>
+
 <section class="table-wrap">
   <table>
     <thead>

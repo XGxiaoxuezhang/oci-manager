@@ -671,6 +671,7 @@ pre {
 
 /* ===== 暗色模式：跟随系统 ===== */
 @media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
   :root {
     --bg: #12161d;
     --panel: #1a212b;
@@ -704,4 +705,40 @@ pre {
   .nav-item.active::before { background: var(--text); }
   .brand-mark { border: 1px solid var(--line-strong); }
   .panel, .table-card, .info-card, .tenant-card { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4); }
+  }
 }
+
+  :root[data-theme="dark"] {
+    --bg: #12161d;
+    --panel: #1a212b;
+    --panel-soft: #161c25;
+    --text: #e4e8ee;
+    --muted: #9aa5b3;
+    --faint: #6d7885;
+    --line: #2a3341;
+    --line-soft: #222a36;
+    --hover: #222b38;
+    --line-strong: #3a4453;
+    --brand-soft: #26303f;
+    --brand-ring: rgba(228, 232, 238, 0.18);
+    --primary-btn-bg: #dfe5ec;
+    --primary-btn-text: #12161d;
+    --good: #57c785;
+    --good-soft: #16281e;
+    --good-line: #2b5a3e;
+    --warn: #d9a03f;
+    --warn-soft: #2b2113;
+    --warn-line: #5c461f;
+    --bad: #ef6b5e;
+    --bad-soft: #2e1715;
+    --bad-line: #612c26;
+    --info: #5ea0e8;
+    --info-soft: #14212f;
+    --info-line: #244763;
+  }
+  html[data-theme="dark"] .btn-primary:hover { filter: brightness(1.05); }
+  html[data-theme="dark"] .nav-item.active { color: var(--text); }
+  html[data-theme="dark"] .nav-item.active::before { background: var(--text); }
+  html[data-theme="dark"] .brand-mark { border: 1px solid var(--line-strong); }
+  html[data-theme="dark"] .panel, html[data-theme="dark"] .table-card, html[data-theme="dark"] .info-card, html[data-theme="dark"] .tenant-card { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4); }
+

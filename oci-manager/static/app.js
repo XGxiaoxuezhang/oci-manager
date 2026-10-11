@@ -336,6 +336,26 @@
     }
   });
 
+  // 暗色切换：auto → light → dark 循环，localStorage 持久化
+  var themeToggle = document.querySelector("[data-theme-toggle]");
+  if (themeToggle) {
+    var themeLabel = document.getElementById("theme-toggle-label");
+    var themeNames = { auto: "外观：跟随系统", light: "外观：亮色", dark: "外观：暗色" };
+    function refreshThemeLabel() {
+      var current = document.documentElement.getAttribute("data-theme") || "auto";
+      if (themeLabel) { themeLabel.textContent = themeNames[current] || themeNames.auto; }
+    }
+    refreshThemeLabel();
+    themeToggle.addEventListener("click", function () {
+      var order = ["auto", "light", "dark"];
+      var current = document.documentElement.getAttribute("data-theme") || "auto";
+      var next = order[(order.indexOf(current) + 1) % order.length];
+      document.documentElement.setAttribute("data-theme", next);
+      try { localStorage.setItem("oci-theme", next); } catch (e) {}
+      refreshThemeLabel();
+    });
+  }
+
   var autoRefresh = document.querySelector("[data-auto-refresh]");
   if (autoRefresh) {
     var seconds = Number(autoRefresh.getAttribute("data-auto-refresh")) || 15;

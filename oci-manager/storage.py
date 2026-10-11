@@ -55,6 +55,28 @@ def restrict_file_permissions(path) -> None:
         pass
 
 
+_EPOCH_CACHE: dict[str, Any] = {"mtime": None, "epoch": 0}
+
+
+def auth_sessions_epoch() -> int:
+    """会话纪元：改密码 / 关闭 2FA 时递增，旧 cookie 会话自动全部失效。
+
+    每请求读一次 auth.yaml 的 mtime（一次 stat，微秒级），文件变了才解析。"""
+    try:
+        mtime = AUTH_PATH.stat().st_mtime_ns
+    except OSError:
+        return _EPOCH_CACHE["epoch"]
+    if _EPOCH_CACHE["mtime"] != mtime:
+        try:
+            with AUTH_PATH.open("r", encoding="utf-8") as fh:
+                data = yaml.safe_load(fh) or {}
+            _EPOCH_CACHE["epoch"] = int(data.get("sessions_epoch", 0) or 0)
+        except (OSError, ValueError):
+            pass
+        _EPOCH_CACHE["mtime"] = mtime
+    return _EPOCH_CACHE["epoch"]
+
+
 def save_auth_settings(data: dict[str, Any]) -> None:
     with AUTH_PATH.open("w", encoding="utf-8") as fh:
         yaml.safe_dump(data, fh, allow_unicode=True, sort_keys=False)

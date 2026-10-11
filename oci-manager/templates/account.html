@@ -16,6 +16,7 @@
       <div class="kv-item"><strong>角色</strong>本地管理员</div>
       <div class="kv-item"><strong>会话</strong>自动过期</div>
       <div class="kv-item"><strong>安全日志</strong><a href="/audit">查看</a></div>
+      <div class="kv-item"><strong>两步验证</strong>{{ '已开启' if totp_enabled else '未开启' }}</div>
     </div>
   </article>
 
@@ -25,6 +26,30 @@
         <h2>修改密码</h2>
       </div>
     </div>
+    {% if totp_pending %}
+    <div class="flash info">
+      请用验证器扫描或手动录入密钥，然后输入动态码确认开启。<br>
+      <code class="small">{{ uri }}</code><br>
+      <span class="small">密钥（手动录入用）：<code>{{ secret }}</code></span>
+    </div>
+    <form method="post" action="/account/totp/enable">
+      <div class="field"><label for="enable-code">动态码</label><input id="enable-code" name="code" inputmode="numeric" maxlength="6" required></div>
+      <div class="field"><label for="enable-password">当前密码</label><input id="enable-password" name="password" type="password" required></div>
+      <button class="btn btn-primary" type="submit">确认开启两步验证</button>
+    </form>
+    {% elif totp_enabled %}
+    <form method="post" action="/account/totp/disable">
+      <div class="field"><label for="disable-code">动态码（关闭 2FA 需验证）</label><input id="disable-code" name="code" inputmode="numeric" maxlength="6" required></div>
+      <div class="field"><label for="disable-password">当前密码</label><input id="disable-password" name="password" type="password" required></div>
+      <button class="btn btn-warning" type="submit">关闭两步验证</button>
+    </form>
+    {% else %}
+    <form method="post" action="/account/totp/setup">
+      <div class="field"><label for="setup-password">当前密码</label><input id="setup-password" name="password" type="password" required></div>
+      <button class="btn btn-secondary" type="submit">开启两步验证（TOTP）</button>
+    </form>
+    {% endif %}
+    <div class="section-head" style="margin-top:18px;"><div><h3>修改密码</h3></div></div>
     <form method="post" action="/account/password">
       <div class="field"><label for="current-password">当前密码</label><input id="current-password" name="current_password" type="password" required></div>
       <div class="field"><label for="new-password">新密码</label><input id="new-password" name="new_password" type="password" minlength="8" required></div>

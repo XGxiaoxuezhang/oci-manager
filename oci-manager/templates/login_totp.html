@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}两步验证 | OCI 管理器{% endblock %}
+{% block page_title %}两步验证{% endblock %}
+
+{% block body %}
+<div class="login-shell">
+  <div class="login-panel stack">
+    <section class="hero">
+      <div class="eyebrow">OCI</div>
+      <h1>两步验证</h1>
+      <p>账号 <code>{{ auth_username }}</code> 密码已通过，请输入验证器上的 6 位动态码。</p>
+    </section>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      <div class="flash-stack">
+        {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% endwith %}
+
+    <section class="panel">
+      <form method="post" action="/login/totp">
+        <div class="field">
+          <label for="totp-code">动态码</label>
+          <input id="totp-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required autofocus>
+        </div>
+        <button class="btn btn-primary" type="submit">验证并登录</button>
+      </form>
+    </section>
+  </div>
+</div>
+{% endblock %}
