@@ -91,3 +91,88 @@ def test_delete_email_domain_cleans_pending_dkim():
 
     client.delete_dkim.assert_called_once_with("dkim1")
     client.delete_email_domain.assert_called_once_with("domain1")
+
+
+def test_a1_free_limits_halved():
+    """2026 起 Oracle 将 A1 免费额度减半（2 OCPU / 12 GB），旧值 4/24 会导致越限不告警。"""
+    from cost_service import FREE_LIMITS
+
+    assert FREE_LIMITS["a1_ocpus"] == 2.0
+    assert FREE_LIMITS["a1_memory_gbs"] == 12.0
+
+
+def test_arm4c24g_preset_removed():
+    """4C24G 预设在新额度下创建即超限计费，已移除。"""
+    from settings import LAUNCH_PRESETS
+
+    assert "arm4c24g" not in LAUNCH_PRESETS
+    assert set(LAUNCH_PRESETS) == {"amd1c1g", "arm2c12g"}
+
+
+def test_retryable_keywords_no_bare_capacity():
+    """回归：裸 "capacity" 曾把 boot volume 类 400 错误也重试 60 次。"""
+    from launch_manager import is_retryable_launch_error
+
+    assert not is_retryable_launch_error(Exception("boot volume size exceeded its capacity"))
+    assert not is_retryable_launch_error(Exception("no available capacities"))
+    assert is_retryable_launch_error(Exception("Out of host capacity."))
+    assert is_retryable_launch_error(Exception("too many requests"))
+    err = Exception("too many requests")
+    err.status = 429
+    assert is_retryable_launch_error(err)
+
+
+def test_schedule_stop_uses_softstop():
+    """回归：定时 stop 曾用 STOP（强制断电），有文件系统损坏风险。"""
+    from unittest.mock import MagicMock, patch
+
+    import schedule_service
+
+    client = MagicMock()
+    client.get_instance.return_value.data.lifecycle_state = "RUNNING"
+    with patch("oci_helpers.get_compute_client", return_value=client):
+        outcome = schedule_service._execute_schedule({"tenant_id": "t"}, {"action": "stop", "instance_id": "i1"})
+    assert outcome == "ok"
+    client.instance_action.assert_called_once_with("i1", "SOFTSTOP")
+
+
+def test_schedule_skips_transition_states():
+    import schedule_service
+
+    client = MagicMock()
+    client.get_instance.return_value.data.lifecycle_state = "STOPPING"
+    with patch("oci_helpers.get_compute_client", return_value=client):
+        outcome = schedule_service._execute_schedule({"tenant_id": "t"}, {"action": "stop", "instance_id": "i1"})
+    assert outcome == "skipped"
+    client.instance_action.assert_not_called()
+
+
+def test_disable_schedules_for_instance():
+    from db import connect, bootstrap
+    from schedule_service import add_schedule, disable_schedules_for_instance, list_schedules
+
+    bootstrap()
+    sid = add_schedule("testtenant", "ocid1.instance.oc1..kill", "vm", "stop", "01:00", "all")
+    try:
+        assert disable_schedules_for_instance("testtenant", "ocid1.instance.oc1..kill") == 1
+        rows = {r["id"]: r for r in list_schedules("testtenant")}
+        assert rows[sid]["enabled"] == 0
+    finally:
+        from schedule_service import remove_schedule
+
+        remove_schedule("testtenant", sid)
+
+
+def test_resize_volume_rejects_below_50(app_client):
+    """回归：数据卷/引导卷最小 50 GB，此前允许 1GB 的注定失败请求。"""
+    resp = app_client.post(
+        "/tenant/testtenant/volume/ocid1.volume.oc1..x/resize",
+        data={"size_gbs": "10", "current_size": "47", "csrf_token": "testtoken"},
+    )
+    assert resp.status_code == 302
+    resp2 = app_client.post(
+        "/tenant/testtenant/volume/ocid1.volume.oc1..x/resize",
+        data={"size_gbs": "10", "current_size": "47", "csrf_token": "testtoken"},
+        follow_redirects=True,
+    )
+    assert "50 ~ 32768" in resp2.get_data(as_text=True)

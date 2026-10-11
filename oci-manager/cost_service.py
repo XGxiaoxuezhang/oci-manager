@@ -10,9 +10,11 @@ from compartment_scope import compartment_of
 
 ALWAYS_FREE_SHAPES = {"VM.Standard.E2.1.Micro", "VM.Standard.A1.Flex"}
 
+# Oracle 2026 起 A1 免费额度减半：1,500 OCPU-h + 9,000 GB-h 每月
+# （对 Always Free 即 2 OCPU / 12 GB，最多 2 台实例）。旧值 4/24 已过时。
 FREE_LIMITS = {
-    "a1_ocpus": 4.0,
-    "a1_memory_gbs": 24.0,
+    "a1_ocpus": 2.0,
+    "a1_memory_gbs": 12.0,
     "amd_micro_count": 2,
     "block_volume_gbs": 200.0,
     "object_storage_gbs": 20.0,
@@ -25,7 +27,7 @@ def cost_rules() -> list[dict[str, Any]]:
         {"title": "A1 Flex", "level": "good", "text": "常见 Always Free ARM 规格，但 OCPU/内存总量需要自己控制。"},
         {"title": "E2.1.Micro", "level": "good", "text": "常见 Always Free AMD 规格。"},
         {"title": "Boot Volume", "level": "warn", "text": "引导卷和块存储容量扩大后可能产生费用，删除实例时也要检查卷是否保留。"},
-        {"title": "Reserved Public IP", "level": "warn", "text": "保留公网 IP、换 IP 后遗留的 IP 资源需要定期检查。"},
+        {"title": "Reserved Public IP", "level": "warn", "text": "保留公网 IP 本身不收费，但每 region 上限 50 个：换 IP 后遗留的未挂载 IP 会占配额，请定期到公网 IP 页清理。"},
         {"title": "Autonomous Database", "level": "warn", "text": "创建自治数据库时确认 Free Tier 选项和资源规格。"},
         {"title": "Object Storage", "level": "warn", "text": "对象存储、出网流量、跨区域复制都可能带来额外费用。"},
     ]
@@ -54,6 +56,14 @@ def free_tier_context(tenant_cfg: dict[str, Any]) -> dict[str, Any]:
     compute = get_compute_client(tenant_cfg)
     identity = get_identity_client(tenant_cfg)
     block = get_block_client(tenant_cfg)
+
+    # Always Free 实例/块卷只在 home region 免费，其它区域正常计费
+    try:
+        home_region = getattr(identity.get_tenancy(tenant_cfg["tenant_id"]).data, "home_region", "")
+        if home_region and tenant_cfg.get("region") != home_region:
+            risks.append({"level": "warn", "text": f"当前区域 {tenant_cfg.get('region')} 不是 home region（{home_region}）：Always Free 实例与块卷仅在 home region 免费。"})
+    except Exception:
+        pass
 
     for ad in list_all(identity.list_availability_domains, compartment_id=tenant_cfg["tenant_id"]):
         for instance in list_all(compute.list_instances, compartment_id=compartment_of(tenant_cfg), availability_domain=ad.name):

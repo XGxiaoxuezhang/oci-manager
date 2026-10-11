@@ -102,20 +102,16 @@ LAUNCH_PRESETS: dict[str, dict[str, Any]] = {
         "boot_volume_gbs": 50,
         "description": "A1 Flex 2C12G。",
     },
-    "arm4c24g": {
-        "label": "ARM 4C24G",
-        "shape": "VM.Standard.A1.Flex",
-        "ocpus": 4,
-        "memory_gbs": 24,
-        "boot_volume_gbs": 50,
-        "description": "A1 Flex 4C24G。",
-    },
+    # 4C24G 预设已移除：2026 年起 A1 免费额度为 2 OCPU / 12 GB，
+    # 4C24G 创建即超出免费额度并开始计费。需要更大规格请用自定义形状并自担费用。
 }
 
+# 注意：不能放裸的 "capacity"——它会把 "boot volume ... capacity" 之类
+# 400 客户端错误也当容量错误重试满 60 次（永远不可能成功），且匹配不到复数
+# "capacities"。OCI 容量不足的标准文案就是 500 + "Out of host capacity"。
 RETRYABLE_KEYWORDS = [
     "out of host capacity",
     "outofhostcapacity",
-    "capacity",
     "too many requests",
     "rate limit",
     "temporarily unavailable",

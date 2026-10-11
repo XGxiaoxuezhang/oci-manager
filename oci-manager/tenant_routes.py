@@ -53,6 +53,7 @@ from schedule_service import (
     list_schedules,
     remove_schedule,
     toggle_schedule,
+    disable_schedules_for_instance,
 )
 from network_service import NSG_PROTOCOLS, add_nsg_rule, network_context, nsg_context, nsg_rules_context, remove_nsg_rule, update_nsg_rule
 from oci_helpers import find_tenant_config, get_block_client, get_compute_client, instance_console_connections
@@ -442,6 +443,9 @@ def instance_terminate(tenant_name: str, instance_id: str):
             request.form.get("preserve_boot_volume") == "on",
         )
         flash(f"实例 {name} 终止请求已提交。", "success")
+        disabled = disable_schedules_for_instance(tenant_name, instance_id)
+        if disabled:
+            flash(f"已同时禁用该实例的 {disabled} 条定时启停计划。", "success")
     except Exception as exc:
         flash(f"终止实例失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
@@ -678,8 +682,8 @@ def create_volume_view(tenant_name: str):
         return redirect(url_for("tenant.index"))
     try:
         size = int(request.form.get("size_gbs", "50"))
-        if size < 1 or size > 32768:
-            raise ValueError("卷大小需在 1 ~ 32768 GB 之间。")
+        if size < 50 or size > 32768:
+            raise ValueError("卷大小需在 50 ~ 32768 GB 之间（OCI 自定义卷最小 50 GB）。")
         create_volume(tenant_cfg, request.form.get("availability_domain", ""), size, request.form.get("display_name", ""))
         flash("块存储卷已创建。", "success")
     except Exception as exc:
@@ -723,12 +727,12 @@ def resize_volume_view(tenant_name: str, volume_id: str):
         return redirect(url_for("tenant.index"))
     try:
         size = int(request.form.get("size_gbs", "0"))
-        if size < 1 or size > 32768:
-            raise ValueError("卷大小需在 1 ~ 32768 GB 之间。")
+        if size < 50 or size > 32768:
+            raise ValueError("卷大小需在 50 ~ 32768 GB 之间（OCI 自定义卷最小 50 GB）。")
         if size <= int(request.form.get("current_size", "0") or 0):
             raise ValueError("新大小必须大于当前大小，OCI 卷只能扩容不能缩容。")
         resize_volume(tenant_cfg, volume_id, size)
-        flash(f"已提交扩容到 {size} GB。", "success")
+        flash(f"已提交扩容到 {size} GB。扩容完成后需在实例内扩展分区与文件系统（如 growpart + resize2fs/xfs_growfs），否则 OS 内看不到新空间。", "success")
     except Exception as exc:
         flash(f"扩容失败: {friendly_error(exc)}", "error")
     return _back_to_volumes(tenant_name)
@@ -773,7 +777,7 @@ def resize_boot_volume_view(tenant_name: str, boot_volume_id: str):
         if size <= int(request.form.get("current_size", "0") or 0):
             raise ValueError("新大小必须大于当前大小，引导卷只能扩容不能缩容。")
         resize_boot_volume(tenant_cfg, boot_volume_id, size)
-        flash(f"已提交引导卷扩容到 {size} GB。", "success")
+        flash(f"已提交引导卷扩容到 {size} GB。完成后需在实例内执行 sudo /usr/libexec/oci-growfs（Oracle Linux）或 growpart + resize 文件系统，否则 OS 内看不到新空间。", "success")
     except Exception as exc:
         flash(f"引导卷扩容失败: {friendly_error(exc)}", "error")
     return _back_to_volumes(tenant_name)

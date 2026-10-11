@@ -31,7 +31,9 @@ def cost_home():
             context["load_error"] = "租户不存在。"
         else:
             try:
-                free_ctx = run_with_timeout(35, free_tier_context, tenant_cfg)
+                # 免费额度是 tenancy 级账务概念，与每日快照同口径强制按根 compartment 统计，
+                # 否则切到子 compartment 时页面会系统性低估
+                free_ctx = run_with_timeout(35, free_tier_context, {**tenant_cfg, "_compartment_id": None})
             except Exception as exc:
                 context["load_error"] = str(exc)
             else:

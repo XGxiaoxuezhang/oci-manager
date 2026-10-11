@@ -19,6 +19,9 @@ logger = logging.getLogger("scheduler")
 
 _DAY_LABELS = {1: "一", 2: "二", 3: "三", 4: "四", 5: "五", 6: "六", 7: "日"}
 _ACTION_LABELS = {"start": "启动", "stop": "停止"}
+# 定时 stop 用 SOFTSTOP（优雅关机）而不是 STOP（强制断电）：
+# 每天定时硬断电有文件系统损坏/数据丢失风险；挂死的实例请到实例页手动强停。
+_ACTION_OCI = {"start": "START", "stop": "SOFTSTOP"}
 # 每条计划的等待上限。没有它，一个卡住的 OCI 调用会让整条调度线程永久阻塞。
 _SCHEDULE_TIMEOUT_SECONDS = 30
 
@@ -205,20 +208,29 @@ def _execute_schedule(tenant_cfg: dict[str, Any], row: dict[str, Any]) -> str:
     last_run_date 写成今天，同一天不会再命中这条计划。
     """
     from oci_helpers import get_compute_client
-    from settings import INSTANCE_ACTIONS
 
     client = get_compute_client(tenant_cfg)
     instance = client.get_instance(row["instance_id"]).data
     state = getattr(instance, "lifecycle_state", "")
-    # 已经是目标状态就别再操作：OCI 会对重复动作返回 409，
-    # 否则每天都会收到一条"执行失败"通知
-    already = (row["action"] == "start" and state == "RUNNING") or (
-        row["action"] == "stop" and state == "STOPPED"
+    # 已经是目标状态（或正在往目标状态过渡）就别再操作：
+    # OCI 会对重复动作返回 409，否则每天都会收到一条"执行失败"通知
+    already = (row["action"] == "start" and state in {"RUNNING", "STARTING"}) or (
+        row["action"] == "stop" and state in {"STOPPED", "STOPPING"}
     )
     if already:
         return "skipped"
-    client.instance_action(row["instance_id"], INSTANCE_ACTIONS[row["action"]])
+    client.instance_action(row["instance_id"], _ACTION_OCI[row["action"]])
     return "ok"
+
+
+def disable_schedules_for_instance(tenant_name: str, instance_id: str) -> int:
+    """禁用某实例的全部启用中计划（终止实例后调用），返回禁用条数。"""
+    with connect() as conn:
+        cursor = conn.execute(
+            "UPDATE resource_schedules SET enabled = 0 WHERE tenant_name = ? AND instance_id = ? AND enabled = 1",
+            (tenant_name, instance_id),
+        )
+        return int(cursor.rowcount or 0)
 
 
 def instance_has_schedule(tenant_name: str, instance_id: str) -> bool:
