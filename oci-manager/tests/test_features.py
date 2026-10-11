@@ -17,8 +17,10 @@ def test_instance_action_json_branch(app_client):
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["ok"] is True
-    assert data["state"] == "RUNNING"
+    # 提交后立刻查询，lifecycle_state 通常还没变：不假装已变更
+    assert data["state"] is None
     assert "软停" in data["message"]
+    assert "生效中" in data["message"]
 
 
 def test_instance_action_json_rejects_invalid_state(app_client):
@@ -67,3 +69,29 @@ def test_databases_create_repopulates_on_error(app_client):
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert 'value="mydb"' in body
+
+
+def test_databases_create_success_redirects(app_client):
+    """回归：成功分支曾缺 return，创建成功后必然 500。"""
+    result = {"id": "ocid1.autonomousdatabase.oc1..x", "display_name": "mydb", "is_free_tier": True}
+    with patch("database_routes.create_autonomous_database", return_value=result),          patch("database_routes.spawn_provision_watcher"):
+        resp = app_client.post(
+            "/tenant/testtenant/databases/create",
+            data={
+                "display_name": "mydb",
+                "db_name": "mydb",
+                "admin_password": "Passw0rd123456",
+                "csrf_token": "testtoken",
+            },
+        )
+    assert resp.status_code == 302, resp.status_code
+
+
+def test_fetch_ssh_hint_never_raises():
+    """回归：SSH hint 的 client 构建失败曾把任务从 success 翻转成 failed。"""
+    import launch_manager
+
+    with patch("launch_manager.get_network_client", side_effect=RuntimeError("key gone")):
+        hint = launch_manager._fetch_ssh_hint({"tenant_id": "t"}, "inst1")
+    assert "SSH" not in hint
+    assert "尚未分配" in hint

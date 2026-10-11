@@ -76,7 +76,10 @@
           window.location.href = baseUrl + "?tenant=" + encodeURIComponent(select.value);
           return;
         }
-        var modulePath = select.getAttribute("data-module-path") || "instances";
+        var modulePath = select.getAttribute("data-module-path");
+        if (modulePath === null) {
+          modulePath = "instances";
+        }
         window.location.href = "/tenant/" + encodeURIComponent(select.value) + "/" + modulePath;
       }
     });

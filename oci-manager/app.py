@@ -155,6 +155,10 @@ def create_app() -> Flask:
                 )
             except OSError:
                 pass
+        # send_file 也会吃到 SEND_FILE_MAX_AGE_DEFAULT（7 天）：Wallet/rclone 配置
+        # 这类含凭据的动态下载绝不能进浏览器缓存，非静态路径一律 no-store
+        if not request.path.startswith("/static"):
+            response.headers.setdefault("Cache-Control", "no-store")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "same-origin")

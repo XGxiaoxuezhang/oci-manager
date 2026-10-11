@@ -310,21 +310,28 @@ def launch_worker(task_id: str, tenant_cfg: dict[str, Any], form: dict[str, Any]
 
 
 def _fetch_ssh_hint(tenant_cfg: dict[str, Any], instance_id: str, attempts: int = 4) -> str:
-    """抢机成功后等公网 IP 分配，通知里直接给 SSH 命令（最多等 ~40s）。"""
-    from compartment_scope import compartment_of
-    from oci_helpers import primary_vnic
+    """抢机成功后等公网 IP 分配，通知里直接给 SSH 命令（最多等 ~40s）。
 
-    network_client = get_network_client(tenant_cfg)
-    compartment_id = compartment_of(tenant_cfg)
-    for _ in range(attempts):
-        try:
-            vnic = primary_vnic(network_client, get_compute_client(tenant_cfg), compartment_id, instance_id)
-            ip = getattr(vnic, "public_ip", None) if vnic else None
-            if ip:
-                return f"SSH: ssh opc@{ip}"
-        except Exception:
-            pass
-        time.sleep(10)
+    任务此时已标记 success：这里任何异常都只降级为提示文案，
+    绝不能抛回给 worker 把成功翻转成失败、甚至触发重试重复开机。
+    """
+    try:
+        from compartment_scope import compartment_of
+        from oci_helpers import primary_vnic
+
+        network_client = get_network_client(tenant_cfg)
+        compartment_id = compartment_of(tenant_cfg)
+        for _ in range(attempts):
+            try:
+                vnic = primary_vnic(network_client, get_compute_client(tenant_cfg), compartment_id, instance_id)
+                ip = getattr(vnic, "public_ip", None) if vnic else None
+                if ip:
+                    return f"SSH: ssh opc@{ip}"
+            except Exception:
+                pass
+            time.sleep(10)
+    except Exception:
+        pass
     return "公网 IP 尚未分配，稍后到实例总览页查看。"
 
 

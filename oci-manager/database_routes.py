@@ -158,6 +158,7 @@ def databases_create(tenant_name: str):
         suffix = " 免费层已固定为 1 核 / 20 GB。" if result["is_free_tier"] else ""
         flash(f"数据库 {result['display_name']} 创建请求已提交。{suffix}创建完成后会发送通知。", "success")
         spawn_provision_watcher(tenant_cfg, result["id"], result["display_name"], tenant_name)
+        return redirect(url_for("database.databases_home", tenant_name=tenant_name))
     except Exception as exc:
         flash(f"创建自治数据库失败：{friendly_error(exc)}", "error")
         return _render_databases_with_form(tenant_name, tenant_cfg, request.form)

@@ -410,9 +410,15 @@ def instance_action(tenant_name: str, instance_id: str, action: str):
             raise ValueError(f"当前实例状态 {current_state} 不允许执行{action_label}操作。")
         compute_client.instance_action(instance_id, INSTANCE_ACTIONS[action])
         new_state = compute_client.get_instance(instance_id).data.lifecycle_state
-        message = f"已提交{action_label}，实例状态 {current_state} → {new_state}。"
+        if new_state == current_state:
+            # 刚提交的动作通常还没反映到 lifecycle_state，如实说明而不是假装已变更
+            message = f"已提交{action_label}，状态变更生效中（当前 {current_state}），稍后刷新查看。"
+            reported_state = None
+        else:
+            message = f"已提交{action_label}，实例状态 {current_state} → {new_state}。"
+            reported_state = new_state
         if wants_json:
-            return {"ok": True, "message": message, "state": new_state}
+            return {"ok": True, "message": message, "state": reported_state}
         flash(message, "success")
     except Exception as exc:
         if wants_json:
