@@ -32,7 +32,14 @@
     <div class="section-head">
       <div>
         <h2>{{ row.tenant_name }}</h2>
-        <div class="section-sub">实例 {{ row.count }} 台，运行中 {{ row.running }} 台。</div>
+        <div class="section-sub">
+          实例 {{ row.count }} 台，运行中 {{ row.running }} 台。
+          {% if row.status == 'ok' %}
+          <span class="badge {{ 'badge-bad' if row.a1_over else 'badge-good' }}" title="A1 免费额度为 2 OCPU / 12 GB">
+            A1 占用 {{ row.a1_ocpus }}/2 OCPU · {{ row.a1_memory }}/12 GB{{ '（已超免费额度）' if row.a1_over }}
+          </span>
+          {% endif %}
+        </div>
       </div>
       <a class="btn btn-secondary" href="/tenant/{{ row.tenant_name }}/instances">进入实例</a>
     </div>

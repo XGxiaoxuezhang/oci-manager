@@ -217,6 +217,7 @@ def test_two_factor_login_flow(anon_client):
     data["must_change_password"] = False
     data["totp_enabled"] = True
     data["totp_secret"] = base64.b32encode(b"12345678901234567890").decode()
+    data["last_login_ip"] = ""  # 触发"新来源登录"通知
     auth_path.write_text(yaml_mod.safe_dump(data, allow_unicode=True), encoding="utf-8")
     try:
         # 1) 密码通过 → 进入待验证页
@@ -248,5 +249,6 @@ def test_two_factor_login_flow(anon_client):
         data = yaml_mod.safe_load(auth_path.read_text(encoding="utf-8")) or {}
         data.pop("totp_enabled", None)
         data.pop("totp_secret", None)
+        data.pop("last_login_ip", None)
         data["must_change_password"] = False
         auth_path.write_text(yaml_mod.safe_dump(data, allow_unicode=True), encoding="utf-8")

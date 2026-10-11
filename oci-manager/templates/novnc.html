@@ -13,12 +13,22 @@
   <div class="actions">
     <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/instance/{{ instance_id }}/rescue">返回救机</a>
     <button class="btn btn-ghost" type="button" data-copy="127.0.0.1:{{ vnc_port }}">复制本地 VNC 地址</button>
+    <button class="btn btn-ghost" type="button" id="novnc-fullscreen">全屏</button>
   </div>
 </section>
 
 <section class="panel">
   <div id="novnc-status" class="flash">正在连接 Web VNC...</div>
   <div id="novnc-screen" class="novnc-screen"></div>
+</section>
+
+<section class="panel" style="margin-top:14px;">
+  <div class="section-head"><div><h3>远程剪贴板</h3></div>
+  <div class="section-sub">VNC 会话内复制的文本会同步到这里；修改后点发送写回远程剪贴板。</div></div>
+  <textarea id="novnc-clipboard" class="form-input" rows="4" style="width:100%"></textarea>
+  <div class="actions" style="margin-top:8px;">
+    <button class="btn btn-secondary" type="button" id="novnc-clipboard-send">发送到远程</button>
+  </div>
 </section>
 
 <script type="module">
@@ -30,26 +40,68 @@
   // 用面板自己的主机名连接：面板从其他机器访问时，写死 127.0.0.1 会指向客户端自己导致必然连不上
   const url = `${protocol}://${window.location.hostname}:{{ web_port }}/?token={{ token }}`;
 
-  try {
-    const rfb = new RFB(screen, url, { credentials: {} });
+  const clipboardBox = document.getElementById("novnc-clipboard");
+  const MAX_RETRIES = 3;
+  let rfb = null;
+  let retries = 0;
+
+  function connect() {
+    rfb = new RFB(screen, url, { credentials: {} });
     rfb.scaleViewport = true;
     rfb.resizeSession = false;
     rfb.viewOnly = false;
     rfb.addEventListener("connect", () => {
+      retries = 0;
       status.className = "flash success";
       status.textContent = "已连接。";
     });
     rfb.addEventListener("disconnect", (event) => {
-      status.className = "flash error";
-      status.textContent = event.detail.clean ? "连接已关闭。" : "连接异常断开。";
+      if (event.detail.clean) {
+        status.className = "flash";
+        status.textContent = "连接已关闭。刷新页面可重新连接。";
+        return;
+      }
+      if (retries < MAX_RETRIES) {
+        retries += 1;
+        status.className = "flash warn";
+        status.textContent = `连接异常断开，${retries}/${MAX_RETRIES} 次重试中…`;
+        setTimeout(connect, 3000);
+      } else {
+        status.className = "flash error";
+        status.textContent = "连接异常断开，多次重试失败。请检查实例状态后刷新页面。";
+      }
     });
     rfb.addEventListener("credentialsrequired", () => {
       status.className = "flash error";
       status.textContent = "VNC 要求密码，当前未配置密码。";
     });
+    // 远程剪贴板 → 本地文本框
+    rfb.addEventListener("clipboard", (event) => {
+      if (clipboardBox && typeof event.detail.text === "string") {
+        clipboardBox.value = event.detail.text;
+      }
+    });
+  }
+
+  try {
+    connect();
   } catch (error) {
     status.className = "flash error";
     status.textContent = `启动 noVNC 失败：${error}`;
   }
+
+  document.getElementById("novnc-fullscreen").addEventListener("click", () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else if (screen.requestFullscreen) {
+      screen.requestFullscreen();
+    }
+  });
+
+  document.getElementById("novnc-clipboard-send").addEventListener("click", () => {
+    if (rfb && clipboardBox.value) {
+      rfb.clipboardPasteFrom(clipboardBox.value);
+    }
+  });
 </script>
 {% endblock %}

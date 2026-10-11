@@ -639,6 +639,15 @@ pre {
 .field-row > .btn { margin-bottom: 0; }
 .field > span { font-size: 12px; font-weight: 500; color: var(--muted); }
 
+/* 实例表：横向滚动时首列（复选框/名称）钉住 */
+.table-sticky-first th:first-child,
+.table-sticky-first td:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--panel);
+  z-index: 1;
+}
+
 /* ===== 响应式 ===== */
 @media (max-width: 1080px) {
   .app { grid-template-columns: 1fr; }

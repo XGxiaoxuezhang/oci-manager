@@ -91,11 +91,15 @@ def _reclaim_risk_instances(tenant_cfg: dict[str, Any]) -> list[dict[str, str]]:
         if cpu_p95 is None or mem_p95 is None:
             continue
         if cpu_p95 < 20 and mem_p95 < 20:
+            net_p95 = scores.get("net_p95")
+            net_note = ""
+            if net_p95 is not None:
+                net_note = f" · 网络 95 分位 {round(net_p95 / 1024 / 1024, 2)} MB/s（参考值）"
             rows.append(
                 {
                     "kind": "reclaim_risk",
                     "name": getattr(instance, "display_name", instance.id),
-                    "detail": f"{getattr(instance, 'shape', '-')} · 运行中 · 7 天 CPU 95 分位 {cpu_p95}% / 内存 {mem_p95}%（低于 20% 回收线）",
+                    "detail": f"{getattr(instance, 'shape', '-')} · 运行中 · 7 天 CPU 95 分位 {cpu_p95}% / 内存 {mem_p95}%（低于 20% 回收线）{net_note}",
                     "created": fmt_dt(getattr(instance, "time_created", None)),
                 }
             )

@@ -101,12 +101,26 @@ def instance_overview_context(tenants: dict[str, dict[str, Any]]) -> dict[str, A
         try:
             instances = list_instance_rows(tenant_cfg)
             running = sum(1 for item in instances if item["state"] == "RUNNING")
+            a1_ocpus = 0.0
+            a1_memory = 0.0
+            for item in instances:
+                if item.get("shape") != "VM.Standard.A1.Flex" or item.get("state") == "TERMINATED":
+                    continue
+                ocpus = item.get("ocpus")
+                memory = item.get("memory_gbs")
+                if ocpus is not None:
+                    a1_ocpus += float(ocpus)
+                if memory is not None:
+                    a1_memory += float(memory)
             return {
                 "tenant_name": tenant_name,
                 "region": cfg.get("region", "-"),
                 "status": "ok",
                 "count": len(instances),
                 "running": running,
+                "a1_ocpus": round(a1_ocpus, 1),
+                "a1_memory": round(a1_memory, 1),
+                "a1_over": a1_ocpus > 2 or a1_memory > 12,
                 "instances": instances,
                 "error": "",
             }
@@ -117,6 +131,9 @@ def instance_overview_context(tenants: dict[str, dict[str, Any]]) -> dict[str, A
                 "status": "error",
                 "count": 0,
                 "running": 0,
+                "a1_ocpus": 0.0,
+                "a1_memory": 0.0,
+                "a1_over": False,
                 "instances": [],
                 "error": str(exc),
             }
@@ -411,12 +428,15 @@ def _instance_row(tenant_cfg: dict[str, Any], ad_name: str, instance: Any) -> di
     compute_client = get_compute_client(tenant_cfg)
     vnic = primary_vnic(network_client, compute_client, compartment_of(tenant_cfg), instance.id)
     state = instance.lifecycle_state
+    shape_config = getattr(instance, "shape_config", None)
     return {
         "id": instance.id,
         "name": instance.display_name,
         "shape": instance.shape,
         "state": state,
         "state_kind": instance_state_kind(state),
+        "ocpus": getattr(shape_config, "ocpus", None) if shape_config else None,
+        "memory_gbs": getattr(shape_config, "memory_in_gbs", None) if shape_config else None,
         "actions": instance_available_actions(state),
         "can_terminate": instance_can_terminate(state),
         "availability_domain": ad_name,

@@ -38,7 +38,7 @@
           <td>{{ rule.peer }}</td>
           <td>{{ rule.ports }}</td>
           <td>{{ rule.description or '-' }}</td>
-          <td><form class="inline" method="post" action="/tenant/{{ tenant_name }}/security-list/{{ security_list.id }}/delete-rule/ingress/{{ rule.index }}" data-confirm="确定删除这条规则吗？">
+          <td><form class="inline" method="post" action="/tenant/{{ tenant_name }}/security-list/{{ security_list.id }}/delete-rule/ingress/{{ rule.index }}" data-confirm="确定删除这条规则吗？删除时会校验规则内容与页面一致。">
           <input type="hidden" name="rule_sig" value="{{ rule.protocol }}|{{ rule.peer }}|{{ rule.ports }}|{{ rule.description or '' }}"><button class="btn btn-danger" type="submit">删除</button></form></td>
         </tr>
         {% else %}

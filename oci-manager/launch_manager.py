@@ -387,6 +387,13 @@ def _launch_worker_impl(task_id: str, tenant_cfg: dict[str, Any], form: dict[str
             update_task(task_id, status="success", instance_id=instance.id, instance_name=instance.display_name, finished_at=now_iso())
             append_task_log(task_id, f"创建成功：{instance.display_name} / {instance.id}")
             ssh_hint = _fetch_ssh_hint(tenant_cfg, instance.id)
+            try:
+                from tenant_services import capture_console_history
+
+                capture_console_history(tenant_cfg, instance.id)
+                append_task_log(task_id, "已自动触发抓取启动日志，稍后可在救机中心查看。")
+            except Exception as exc:
+                append_task_log(task_id, f"自动抓取启动日志失败（可在救机中心手动抓取）：{exc}")
             notify(
                 "OCI 创建实例成功",
                 f"{task_id}: {instance.display_name}\n{ssh_hint}",
