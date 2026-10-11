@@ -95,6 +95,41 @@ def add_schedule(
         return int(cursor.lastrowid or 0)
 
 
+def get_schedule(tenant_name: str, schedule_id: int) -> dict[str, Any] | None:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM resource_schedules WHERE id = ? AND tenant_name = ?",
+            (schedule_id, tenant_name),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def update_schedule(
+    tenant_name: str,
+    schedule_id: int,
+    action: str,
+    time_hhmm: str,
+    days: str,
+) -> None:
+    if action not in ("start", "stop"):
+        raise ValueError("动作只能是 start 或 stop。")
+    time_hhmm = _norm_time(time_hhmm)
+    if not time_hhmm:
+        raise ValueError("时间格式应为 HH:MM。")
+    days = _norm_days(days)
+    with connect() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE resource_schedules
+            SET action = ?, time_hhmm = ?, days = ?, last_run_date = ''
+            WHERE id = ? AND tenant_name = ?
+            """,
+            (action, time_hhmm, days, schedule_id, tenant_name),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("计划不存在。")
+
+
 def remove_schedule(tenant_name: str, schedule_id: int) -> None:
     with connect() as conn:
         conn.execute(

@@ -49,7 +49,9 @@ def create_backup_zip() -> bytes:
 def should_include_backup_path(path: Path) -> bool:
     if not path.is_file() or path.name in SKIP_NAMES:
         return False
-    if path.relative_to(DATA_DIR).parts[0] == "logs":
+    relative = path.relative_to(DATA_DIR)
+    if relative.parts[0] in {"logs", "backups"}:
+        # logs/ 是运行日志；backups/ 是自动备份产物（否则今天的 ZIP 会打进明天的）
         return False
     if DATA_DIR != BASE_DIR:
         return True
@@ -108,3 +110,18 @@ def restore_backup_zip(payload: bytes) -> tuple[list[str], list[str]]:
 def backup_file_count() -> int:
     total = 1 if SQLITE_PATH.exists() else 0
     return total + sum(1 for path in Path(DATA_DIR).rglob("*") if should_include_backup_path(path))
+
+
+def run_scheduled_backup(keep: int = 7) -> dict[str, Any]:
+    """每日自动备份：写入 DATA_DIR/backups/，保留最近 keep 份（含当天）。"""
+    payload = create_backup_zip()
+    backup_dir = DATA_DIR / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    target = backup_dir / f"auto-{now_iso()[:10]}.zip"
+    tmp = target.with_suffix(".zip.tmp")
+    tmp.write_bytes(payload)
+    tmp.replace(target)  # 原子落盘，中断不留半截 ZIP
+    zips = sorted(backup_dir.glob("auto-*.zip"))
+    for old in zips[:-keep] if keep else []:
+        old.unlink(missing_ok=True)
+    return {"path": str(target), "size": len(payload), "kept": min(len(zips), keep)}

@@ -63,6 +63,9 @@ def init_db() -> None:
             """
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_events_time ON audit_events(time DESC)")
+        # 审计查询与保留清理都是 ORDER BY time DESC, id DESC，复合索引才完整覆盖
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_events_time_id ON audit_events(time DESC, id DESC)")
+
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS launch_tasks (
@@ -116,7 +119,8 @@ def init_db() -> None:
             )
             """
         )
-        conn.execute("INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('schema_version', '3')")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_cost_snapshots_tenant_date ON cost_snapshots(tenant_name, date)")
+        conn.execute("INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('schema_version', '4')")
 
 
 def record_login_attempt(remote_addr: str, username: str, success: bool) -> None:

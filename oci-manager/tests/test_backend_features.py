@@ -310,3 +310,56 @@ def test_batch_power_action_rejects_hard_actions(app_client):
         follow_redirects=True,
     )
     assert "批量操作仅支持" in resp.get_data(as_text=True)
+
+
+def test_token_gate_blocks_without_token():
+    """websockify 无鉴权：门禁必须在无/错 token 时拒绝转发。"""
+    import socket
+    import threading
+    import time
+
+    from vnc_tunnel import _TokenGate
+
+    backend = socket.socket()
+    backend.bind(("127.0.0.1", 0))
+    backend.listen(4)
+    backend_port = backend.getsockname()[1]
+    received = []
+
+    def serve():
+        while True:
+            try:
+                conn, _ = backend.accept()
+            except OSError:
+                return
+            data = conn.recv(65536)
+            received.append(data)
+            conn.sendall(b"HTTP/1.1 101 Switching Protocols\r\n\r\n")
+            conn.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+
+    gate = _TokenGate("127.0.0.1", 0, backend_port, "secret123")
+    gate.start()
+    try:
+        time.sleep(0.2)
+        port = gate._sock.getsockname()[1]
+
+        def probe(request):
+            s = socket.create_connection(("127.0.0.1", port), timeout=3)
+            s.sendall(request)
+            s.settimeout(2)
+            try:
+                return s.recv(65536)
+            except OSError:
+                return b""
+            finally:
+                s.close()
+
+        assert b"101" in probe(b"GET /?token=secret123 HTTP/1.1\r\nHost: x\r\n\r\n")
+        assert probe(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n") == b""
+        assert probe(b"GET /?token=wrong HTTP/1.1\r\nHost: x\r\n\r\n") == b""
+        assert len(received) == 1  # 只有一次通过门禁到达后端
+    finally:
+        gate.stop()
+        backend.close()

@@ -50,9 +50,11 @@ from compartment_service import apply_session_compartment, switch_compartment as
 from schedule_service import (
     add_schedule,
     days_label,
+    get_schedule,
     list_schedules,
     remove_schedule,
     toggle_schedule,
+    update_schedule,
     disable_schedules_for_instance,
 )
 from network_service import NSG_PROTOCOLS, add_nsg_rule, network_context, nsg_context, nsg_rules_context, remove_nsg_rule, update_nsg_rule
@@ -287,6 +289,16 @@ def list_users(tenant_name: str):
 
 
 @tenant_bp.route("/tenant/<tenant_name>/user/create", methods=["POST"])
+def _render_users_with_form(tenant_name: str, tenant_cfg: dict[str, Any], form):
+    """创建用户失败时带值重渲染，避免重填。"""
+    try:
+        ctx = run_with_timeout(15, iam_security_context, tenant_cfg)
+    except Exception as exc:
+        flash(f"读取用户列表失败: {friendly_error(exc)}", "error")
+        ctx = {"users": [], "summary": {}, "findings": [], "load_error": str(exc)}
+    return render_page("users", tenant_name=tenant_name, form=form, **ctx)
+
+
 def create_user(tenant_name: str):
     tenant_cfg = require_tenant(tenant_name)
     if tenant_cfg is None:
@@ -297,12 +309,13 @@ def create_user(tenant_name: str):
     create_password = request.form.get("create_password") == "on"
     if not username or not email:
         flash("用户名和邮箱不能为空。", "error")
-        return redirect(url_for("tenant.list_users", tenant_name=tenant_name))
+        return _render_users_with_form(tenant_name, tenant_cfg, request.form)
     try:
         for message in create_user_for_tenant(tenant_cfg, username, email, is_admin, create_password):
             flash(message, "success")
     except Exception as exc:
         flash(f"创建用户失败: {friendly_error(exc)}", "error")
+        return _render_users_with_form(tenant_name, tenant_cfg, request.form)
     return redirect(url_for("tenant.list_users", tenant_name=tenant_name))
 
 
@@ -1096,6 +1109,7 @@ def novnc_view(tenant_name: str, instance_id: str, connection_id: str):
         connection_id=connection_id,
         web_port=status["web_port"],
         vnc_port=status["vnc_port"],
+        token=status.get("token", ""),
     )
 
 
@@ -1184,7 +1198,13 @@ def delete_rule(tenant_name: str, security_list_id: str, rule_type: str, rule_in
     if tenant_cfg is None:
         return redirect(url_for("tenant.index"))
     try:
-        remove_security_rule(tenant_cfg, security_list_id, rule_type, rule_index)
+        remove_security_rule(
+            tenant_cfg,
+            security_list_id,
+            rule_type,
+            rule_index,
+            expected_signature=request.form.get("rule_sig", ""),
+        )
         flash("安全规则已删除。", "success")
     except Exception as exc:
         flash(f"删除规则失败: {friendly_error(exc)}", "error")
@@ -1192,6 +1212,34 @@ def delete_rule(tenant_name: str, security_list_id: str, rule_type: str, rule_in
 
 
 # ===== 定时启停 =====
+
+
+@tenant_bp.route("/tenant/<tenant_name>/schedules/<int:schedule_id>/edit", methods=["GET", "POST"])
+def schedule_edit(tenant_name: str, schedule_id: int):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    row = get_schedule(tenant_name, schedule_id)
+    if row is None:
+        flash("定时计划不存在。", "error")
+        return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
+    if request.method == "POST":
+        try:
+            update_schedule(
+                tenant_name,
+                schedule_id,
+                request.form.get("action", "start").strip(),
+                request.form.get("time_hhmm", "").strip(),
+                request.form.get("days", "all").strip(),
+            )
+            flash("定时计划已更新。", "success")
+            return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
+        except Exception as exc:
+            flash(f"更新定时计划失败: {friendly_error(exc)}", "error")
+            row = {**row, "action": request.form.get("action", row["action"]),
+                   "time_hhmm": request.form.get("time_hhmm", row["time_hhmm"]),
+                   "days": request.form.get("days", row["days"])}
+    return render_page("schedule_edit", tenant_name=tenant_name, schedule=row, form=request.form)
 
 
 @tenant_bp.route("/tenant/<tenant_name>/schedules/add", methods=["POST"])

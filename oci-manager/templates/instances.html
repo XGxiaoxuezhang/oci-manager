@@ -199,6 +199,7 @@
           <td><span class="badge {{ 'badge-good' if s.enabled else 'badge-mid' }}">{{ '启用' if s.enabled else '停用' }}</span></td>
           <td class="muted">{{ s.last_run_date or '-' }}</td>
           <td class="row-actions">
+            <a class="btn btn-ghost" href="/tenant/{{ tenant_name }}/schedules/{{ s.id }}/edit">编辑</a>
             <form class="inline" method="post" action="/tenant/{{ tenant_name }}/schedules/{{ s.id }}/toggle">
               <button class="btn btn-ghost" type="submit">{{ '停用' if s.enabled else '启用' }}</button>
             </form>

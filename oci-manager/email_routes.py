@@ -72,6 +72,26 @@ def email_export(tenant_name: str):
 
 
 @email_bp.route("/tenant/<tenant_name>/email/domains", methods=["POST"])
+def _render_email_with_form(tenant_name: str, tenant_cfg: dict[str, Any], form):
+    """创建域名/发件人失败时带值重渲染。"""
+    try:
+        context = run_with_timeout(8, email_context, tenant_cfg)
+        return render_page("email", tenant_name=tenant_name, **context, form=form)
+    except Exception as exc:
+        return render_page(
+            "email",
+            tenant_name=tenant_name,
+            form=form,
+            email_stats={"domain_count": 0, "active_domain_count": 0, "sender_count": 0},
+            email_guides=[],
+            email_configuration={"http_submit_endpoint": "-", "smtp_submit_endpoint": "-"},
+            email_domains=[],
+            dkims=[],
+            senders=[],
+            load_error=str(exc),
+        )
+
+
 def email_create_domain(tenant_name: str):
     tenant_cfg = require_tenant(tenant_name)
     if tenant_cfg is None:
@@ -79,9 +99,10 @@ def email_create_domain(tenant_name: str):
     try:
         domain = create_email_domain(tenant_cfg, request.form.get("domain_name", ""), request.form.get("description", ""))
         flash(f"邮件域名 {domain['name']} 已提交创建请求。", "success")
+        return redirect(url_for("email.email_home", tenant_name=tenant_name))
     except Exception as exc:
         flash(f"创建邮件域名失败：{friendly_error(exc)}", "error")
-    return redirect(url_for("email.email_home", tenant_name=tenant_name))
+        return _render_email_with_form(tenant_name, tenant_cfg, request.form)
 
 
 @email_bp.route("/tenant/<tenant_name>/email/senders", methods=["POST"])

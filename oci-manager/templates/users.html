@@ -53,8 +53,8 @@
 <section class="panel">
   <h3>创建新用户</h3>
   <form method="post" action="/tenant/{{ tenant_name }}/user/create" class="grid grid-3">
-    <div class="field"><label>用户名</label><input name="username" required></div>
-    <div class="field"><label>邮箱</label><input name="email" type="email" required></div>
+    <div class="field"><label>用户名</label><input name="username" value="{{ form.get('username', '') if form else '' }}" required></div>
+    <div class="field"><label>邮箱</label><input name="email" type="email" value="{{ form.get('email', '') if form else '' }}" required></div>
     <div class="field"><label>附加选项</label><div class="small"><label><input type="checkbox" name="is_admin"> 自动加入管理员组</label><br><label><input type="checkbox" name="create_password"> 生成控制台临时密码</label></div></div>
     <div><button class="btn btn-primary" type="submit">创建</button></div>
   </form>

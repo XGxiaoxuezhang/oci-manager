@@ -28,7 +28,7 @@
   const status = document.getElementById("novnc-status");
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
   // 用面板自己的主机名连接：面板从其他机器访问时，写死 127.0.0.1 会指向客户端自己导致必然连不上
-  const url = `${protocol}://${window.location.hostname}:{{ web_port }}/`;
+  const url = `${protocol}://${window.location.hostname}:{{ web_port }}/?token={{ token }}`;
 
   try {
     const rfb = new RFB(screen, url, { credentials: {} });

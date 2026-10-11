@@ -885,21 +885,37 @@ def append_security_rule(tenant_cfg: dict[str, Any], security_list_id: str, rule
     )
 
 
-def remove_security_rule(tenant_cfg: dict[str, Any], security_list_id: str, rule_type: str, rule_index: int) -> None:
+def _security_rule_signature(rule: Any) -> str:
+    """用 summarize_rule 的展示字段拼出规则指纹，供删除前校验并发错位。"""
+    from oci_helpers import summarize_rule
+
+    summary = summarize_rule("", 0, rule)
+    return f"{summary['protocol']}|{summary['peer']}|{summary['ports']}|{summary['description']}"
+
+
+def remove_security_rule(
+    tenant_cfg: dict[str, Any],
+    security_list_id: str,
+    rule_type: str,
+    rule_index: int,
+    expected_signature: str = "",
+) -> None:
     if rule_type not in {"ingress", "egress"}:
         raise ValueError("规则方向不正确。")
     client = get_network_client(tenant_cfg)
     security_list = client.get_security_list(security_list_id).data
     ingress_rules = list(getattr(security_list, "ingress_security_rules", []) or [])
     egress_rules = list(getattr(security_list, "egress_security_rules", []) or [])
-    if rule_type == "ingress":
-        if rule_index < 0 or rule_index >= len(ingress_rules):
-            raise ValueError("入站规则序号不存在。")
-        ingress_rules.pop(rule_index)
-    else:
-        if rule_index < 0 or rule_index >= len(egress_rules):
-            raise ValueError("出站规则序号不存在。")
-        egress_rules.pop(rule_index)
+    rules = ingress_rules if rule_type == "ingress" else egress_rules
+    label = "入站" if rule_type == "ingress" else "出站"
+    if rule_index < 0 or rule_index >= len(rules):
+        raise ValueError(f"{label}规则序号不存在。")
+    if expected_signature:
+        current = _security_rule_signature(rules[rule_index])
+        if current != expected_signature:
+            # 页面开着未刷新时规则序号可能错位，删前核对内容防止删错
+            raise ValueError("该序号的规则内容与页面显示不一致，请刷新页面后重试。")
+    rules.pop(rule_index)
     client.update_security_list(
         security_list_id,
         oci.core.models.UpdateSecurityListDetails(

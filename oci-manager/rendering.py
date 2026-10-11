@@ -10,6 +10,7 @@ from storage import load_tenants
 
 PAGE_TEMPLATES = {
     "workspace": "workspace.html",
+    "schedule_edit": "schedule_edit.html",
     "account": "account.html",
     "login": "login.html",
     "home": "home.html",

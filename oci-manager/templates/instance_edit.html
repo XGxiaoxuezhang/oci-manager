@@ -57,6 +57,7 @@
             type="number"
             step="0.5"
             min="{{ instance.shape_limits.ocpu_min if instance.shape_limits else 0 }}"
+            max="{{ instance.shape_limits.ocpu_max if instance.shape_limits else '' }}"
             value="{{ instance.current_ocpus if instance.current_ocpus is not none else '' }}"
             {{ '' if instance.is_flex_shape else 'disabled' }}>
         </div>
@@ -67,6 +68,7 @@
             type="number"
             step="1"
             min="{{ instance.shape_limits.memory_min if instance.shape_limits else 0 }}"
+            max="{{ instance.shape_limits.memory_max if instance.shape_limits else '' }}"
             value="{{ instance.current_memory_gbs if instance.current_memory_gbs is not none else '' }}"
             {{ '' if instance.is_flex_shape else 'disabled' }}>
         </div>

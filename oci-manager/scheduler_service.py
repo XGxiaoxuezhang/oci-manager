@@ -70,12 +70,18 @@ def _tick(now: datetime, state: dict[str, str]) -> None:
         state["hour_mark"] = hour_mark
         _spawn_once("tenant_checks", _run_tenant_checks)
 
-    # 每天 00:05 后首个 tick：成本快照（后台线程）
+    # 每天 00:05 后首个 tick：成本快照 + 数据目录自动备份（后台线程）
     if now.minute >= 5:
         day_mark = now.strftime("%Y%m%d")
         if state["day_mark"] != day_mark:
             state["day_mark"] = day_mark
             _spawn_once("cost_snapshot", _run_cost_snapshot)
+            _spawn_once("auto_backup", _run_auto_backup)
+
+    # 每小时：SQLite 运行数据清理（audit/login/launch_tasks 保留上限）
+    hour_mark = now.strftime("%Y%m%d%H")
+    if state["hour_mark"] != hour_mark:
+        _spawn_once("db_cleanup", _run_db_cleanup)
 
 
 def _safe_run(name: str, func: Callable[[], None]) -> None:
@@ -90,6 +96,8 @@ def _safe_run(name: str, func: Callable[[], None]) -> None:
 _BG_LOCKS: dict[str, threading.Lock] = {
     "tenant_checks": threading.Lock(),
     "cost_snapshot": threading.Lock(),
+    "auto_backup": threading.Lock(),
+    "db_cleanup": threading.Lock(),
 }
 
 
@@ -162,3 +170,23 @@ def _run_cost_snapshot() -> None:
     from cost_snapshot_service import snapshot_all_tenants
 
     snapshot_all_tenants()
+
+
+def _run_auto_backup() -> None:
+    """每日自动备份数据目录；失败推通知（成功不推，避免每日骚扰）。"""
+    from backup_service import run_scheduled_backup
+    from notify import notify
+
+    try:
+        result = run_scheduled_backup()
+        logger.info("自动备份完成: %s (%d bytes)", result["path"], result["size"])
+    except Exception as exc:
+        logger.error("自动备份失败:\n%s", traceback.format_exc())
+        notify("OCI 管理器自动备份失败", str(exc)[:300], {})
+        raise
+
+
+def _run_db_cleanup() -> None:
+    from db import cleanup_runtime_rows
+
+    cleanup_runtime_rows()

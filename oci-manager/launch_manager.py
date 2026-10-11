@@ -26,6 +26,38 @@ def load_launch_tasks() -> None:
     测试与工具脚本难以复用这个模块。
     """
     load_launch_tasks_from_db()
+    _import_legacy_json_tasks()
+
+
+def _import_legacy_json_tasks() -> None:
+    """旧版本任务存 launch_tasks.json；一次性导入 SQLite 后改名归档。"""
+    from settings import DATA_DIR
+
+    legacy_path = DATA_DIR / "launch_tasks.json"
+    if not legacy_path.exists():
+        return
+    try:
+        data = json.loads(legacy_path.read_text(encoding="utf-8"))
+        tasks = data.get("tasks", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+        rows = []
+        for task in tasks:
+            task_id = str(task.get("id") or "")
+            if not task_id or task_id in LAUNCH_TASKS:
+                continue
+            if task.get("status") in {"queued", "running"}:
+                task["status"] = "interrupted"
+            task.setdefault("logs", [])
+            rows.append(task)
+        if rows:
+            with TASK_LOCK:
+                with connect() as conn:
+                    _upsert_tasks(conn, {task["id"]: task for task in rows})
+                for task in rows:
+                    LAUNCH_TASKS[task["id"]] = task
+        legacy_path.rename(legacy_path.with_name("launch_tasks.json.imported"))
+        print(f"[launch_manager] 已导入 {len(rows)} 条历史任务（launch_tasks.json → SQLite）", flush=True)
+    except Exception as exc:
+        print(f"[launch_manager] 导入 legacy launch_tasks.json 失败: {exc}", flush=True)
 
 
 def load_launch_tasks_from_db() -> bool:
