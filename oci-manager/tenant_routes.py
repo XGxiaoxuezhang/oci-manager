@@ -223,8 +223,10 @@ def add_tenant():
             return render_page("add_tenant", regions=DEFAULT_REGIONS, form=request.form)
 
         tenants = load_tenants()
-        if tenant_name in tenants:
-            flash(f"租户 {tenant_name} 已存在，请换一个名称。", "error")
+        # Windows 文件系统大小写不敏感：ABC 与 abc 会共享同一目录，
+        # 删除其一（remove_tenant_record）会连带删掉另一个的私钥
+        if any(existing.lower() == tenant_name.lower() for existing in tenants):
+            flash(f"租户 {tenant_name} 已存在（名称不区分大小写），请换一个名称。", "error")
             return render_page("add_tenant", regions=DEFAULT_REGIONS, form=request.form)
 
         try:
@@ -247,8 +249,12 @@ def delete_tenant(tenant_name: str):
     if request.form.get("confirm_name", "").strip() != tenant_name:
         flash("确认名称不匹配，未删除租户。", "error")
         return redirect(url_for("tenant.index"))
+    removed_cfg = tenants[tenant_name]
     remove_tenant_record(tenants, tenant_name)
     save_tenants(tenants)
+    from oci_helpers import purge_client_cache
+
+    purge_client_cache(removed_cfg)
     flash(f"租户 {tenant_name} 已删除。", "success")
     return redirect(url_for("tenant.index"))
 

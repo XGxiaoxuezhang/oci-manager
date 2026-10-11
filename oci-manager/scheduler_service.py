@@ -107,7 +107,11 @@ def _spawn_once(name: str, func: Callable[[], None]) -> None:
         finally:
             lock.release()
 
-    threading.Thread(target=runner, name=f"bg-{name}", daemon=True).start()
+    try:
+        threading.Thread(target=runner, name=f"bg-{name}", daemon=True).start()
+    except Exception:
+        lock.release()  # 线程起不来（句柄耗尽等）时必须还锁，否则该任务永久静默跳过
+        raise
 
 
 # ---------- 任务实现 ----------

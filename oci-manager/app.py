@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 from datetime import timedelta
+from logging.handlers import RotatingFileHandler
 
 from flask import Flask, abort, flash, redirect, request, session, url_for
 
@@ -16,6 +18,7 @@ from database_routes import database_bp
 from email_routes import email_bp
 from object_storage_routes import object_storage_bp
 from settings import (
+    DATA_DIR,
     MAX_UPLOAD_BYTES,
     MAX_UPLOAD_MB,
     clear_proxy_enabled,
@@ -63,7 +66,22 @@ def csrf_token() -> str:
     return token
 
 
+def setup_logging() -> None:
+    """文件日志：scheduler 的 INFO、后台任务的失败原因此前在任何环境都丢失
+    （无 handler 时 Python 只输出 WARNING+ 到 stderr；Windows 源码直跑挂服务
+    后连 stderr 都没有）。备份会排除 logs/ 目录。"""
+    log_dir = DATA_DIR / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    handler = RotatingFileHandler(log_dir / "app.log", maxBytes=2 * 1024 * 1024, backupCount=5, encoding="utf-8")
+    logging.basicConfig(
+        level=logging.INFO,
+        handlers=[handler, logging.StreamHandler()],
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+
+
 def create_app() -> Flask:
+    setup_logging()
     clear_broken_proxy_env()
     app = Flask(__name__)
     app.secret_key = secret_key()
@@ -188,4 +206,11 @@ if __name__ == "__main__":
     host = server_host()
     port = server_port()
     print(f"OCI Manager running at http://{host}:{port}")
-    app.run(debug=debug_enabled(), host=host, port=port)
+    if debug_enabled():
+        app.run(debug=True, host=host, port=port)
+    else:
+        # 非调试一律用 waitress（纯 Python 生产级 WSGI，Docker/Windows 双路径适用）；
+        # Werkzeug dev server 单线程且不适合长期挂服务
+        from waitress import serve
+
+        serve(app, host=host, port=port, threads=8, connection_limit=200, channel_timeout=120)

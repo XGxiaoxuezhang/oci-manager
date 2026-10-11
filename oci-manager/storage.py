@@ -76,10 +76,16 @@ def save_tenants(tenants: dict[str, dict[str, Any]]) -> None:
     restrict_file_permissions(CONFIG_PATH)
 
 
+# Windows 保留设备名：作为目录名会导致 key_file.save 行为异常
+_WINDOWS_RESERVED = {"con", "prn", "aux", "nul"} | {f"com{i}" for i in range(1, 10)} | {f"lpt{i}" for i in range(1, 10)}
+
+
 def normalize_tenant_name(name: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "-", name.strip())
     cleaned = cleaned.strip("-").rstrip(".")
     # "." 和 ".." 在路径拼接里有特殊含义；空串让调用方走"名称不合法"分支
     if cleaned in {"", ".", ".."}:
+        return ""
+    if cleaned.lower() in _WINDOWS_RESERVED:
         return ""
     return cleaned

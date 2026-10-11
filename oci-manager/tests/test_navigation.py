@@ -31,7 +31,9 @@ def test_last_tenant_defaults_nav(app_client):
         session["last_tenant"] = "testtenant"
     resp = app_client.get("/settings")
     body = resp.get_data(as_text=True)
-    assert '/tenant/testtenant/"' in body.replace("workspace", "") or "/tenant/testtenant/" in body
+    assert "/tenant/testtenant/" in body
+    # 工作区导航项不应是置灰（disabled）状态——这正是本批修复的回归点
+    assert 'class="nav-item disabled" href="/tenant/testtenant/"' not in body
     # 侧栏下拉里最近租户应处于选中态
     assert 'value="testtenant" selected' in body
 

@@ -32,8 +32,15 @@ def spawn_provision_watcher(tenant_cfg: dict[str, Any], database_id: str, displa
         _PROVISION_WATCHERS.add(database_id)
 
     def watch() -> None:
+        from oci_helpers import find_tenant_config
+
         for _ in range(90):  # 20s × 90 = 30 分钟
             time.sleep(20)
+            if find_tenant_config(tenant_name) is None:
+                # 租户已删除：停止轮询，密钥文件也没了，继续只会每轮报错
+                with _PROVISION_WATCH_LOCK:
+                    _PROVISION_WATCHERS.discard(database_id)
+                return
             try:
                 state = get_database_client(tenant_cfg).get_autonomous_database(database_id).data.lifecycle_state
             except Exception as exc:

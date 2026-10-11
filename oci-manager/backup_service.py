@@ -49,6 +49,8 @@ def create_backup_zip() -> bytes:
 def should_include_backup_path(path: Path) -> bool:
     if not path.is_file() or path.name in SKIP_NAMES:
         return False
+    if path.relative_to(DATA_DIR).parts[0] == "logs":
+        return False
     if DATA_DIR != BASE_DIR:
         return True
     relative = path.relative_to(DATA_DIR)

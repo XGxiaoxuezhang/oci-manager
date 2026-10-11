@@ -67,9 +67,24 @@ def _client_cache_key(tenant_cfg: dict[str, Any], kind: str) -> tuple | None:
     )
 
 
+_CLIENT_CACHE_MAX = 128
+
+
+def purge_client_cache(tenant_cfg: dict[str, Any]) -> int:
+    """删除租户后清理其全部缓存 client（键的第 2 段是 tenant_id）。"""
+    tenant_id = tenant_cfg.get("tenant_id", "")
+    with _CLIENT_CACHE_LOCK:
+        stale = [k for k in _CLIENT_CACHE if k[1] == tenant_id]
+        for key in stale:
+            _CLIENT_CACHE.pop(key, None)
+        return len(stale)
+
+
 def get_cached_client(kind: str, tenant_cfg: dict[str, Any], factory: Callable[[], Any]) -> Any:
     """按（租户身份 + 私钥文件指纹）缓存 client 实例。
 
+    factory 在锁外执行（读 PEM + validate_config 较慢，锁内串行会拖慢首屏），
+    并发首次构建可能重复建一个 client，后写者胜出，无害。
     拿不到缓存键（私钥不存在等）时退化为直接构建，行为与旧版一致。
     """
     key = _client_cache_key(tenant_cfg, kind)
@@ -77,10 +92,13 @@ def get_cached_client(kind: str, tenant_cfg: dict[str, Any], factory: Callable[[
         return factory()
     with _CLIENT_CACHE_LOCK:
         client = _CLIENT_CACHE.get(key)
-        if client is None:
-            client = factory()
-            _CLIENT_CACHE[key] = client
+    if client is not None:
         return client
+    client = factory()
+    with _CLIENT_CACHE_LOCK:
+        if len(_CLIENT_CACHE) >= _CLIENT_CACHE_MAX:
+            _CLIENT_CACHE.clear()  # 键含私钥 mtime，轮换会累积旧条目；超限整体清空最简单
+        return _CLIENT_CACHE.setdefault(key, client)
 
 
 def friendly_error(exc: BaseException) -> str:

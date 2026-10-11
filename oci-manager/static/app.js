@@ -245,6 +245,11 @@
       if (document.querySelector("dialog[open], details.menu[open], details.fold[open]")) {
         return;
       }
+      // 实例表筛选正在输入或有内容时同样跳过
+      var filter = document.querySelector("[data-filter-text]");
+      if (filter && (filter.value || document.activeElement === filter)) {
+        return;
+      }
       window.location.reload();
     }, seconds * 1000);
   }

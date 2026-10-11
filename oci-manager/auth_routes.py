@@ -35,6 +35,9 @@ def require_login():
         "auth.change_password",
         "auth.logout",
     }:
+        if request.headers.get("X-Requested-With") == "fetch":
+            # fetch 请求拿 302 HTML 会被前端报成"网络错误"，用户无从得知原因
+            return {"ok": False, "message": "首次部署请先修改初始登录密码。"}, 401
         flash("首次部署请先修改初始登录密码。", "error")
         return redirect(url_for("auth.account"))
     return None

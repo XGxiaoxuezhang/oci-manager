@@ -19,6 +19,8 @@ PROJECT_DIR = TESTS_DIR.parent
 TEST_DATA = TESTS_DIR / "data"
 
 os.environ["OCI_MANAGER_DATA_DIR"] = str(TEST_DATA)
+# 测试进程不启动后台调度线程：窗口补跑语义下，守护线程会和补跑测试竞抢计划
+os.environ["OCI_MANAGER_SCHEDULER"] = "0"
 sys.path.insert(0, str(PROJECT_DIR))
 
 import pytest  # noqa: E402

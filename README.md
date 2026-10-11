@@ -20,7 +20,7 @@
 - 系统状态：检查 Python、OCI SDK、数据目录、租户配置和私钥存在性
 - 备份恢复：导出/恢复本地数据目录，SQLite 使用一致性快照
 - 实例总览：跨租户查看实例状态、公网 IP 和 SSH 命令
-- 巡检：手动检查每个租户的 OCI API 连通性
+- 巡检：每小时自动检查每个租户的 OCI API 连通性，状态变化推通知，也可手动触发
 - 通知：支持通用 Webhook 和 ntfy，用于实例创建成功/失败提醒，设置页可发送测试通知
 - 对象存储：Bucket 管理、对象上传/下载/预览/删除、新建目录、CSV 导出和 rclone 配置下载
 - 自治数据库：创建、启动、停止、Wallet 下载、手动备份、删除、备份查看和 CSV 导出
@@ -41,7 +41,7 @@ pip install -r requirements.txt
 .\start.ps1
 ```
 
-启动后访问：`http://127.0.0.1:5080`
+启动后访问：`http://127.0.0.1:5080`（非调试模式使用 waitress 生产级 WSGI 服务器，Docker 同样适用）
 
 常用参数：
 
@@ -74,16 +74,24 @@ docker compose up -d --build
 .
 ├── README.md
 ├── requirements.txt
+├── Dockerfile
+├── docker-compose.yml
+├── .env.example
+├── start.ps1
+├── data/                  # start.ps1 / Docker 的数据目录
 └── oci-manager/
     ├── app.py
     ├── templates/
     ├── static/
-    └── tenants/
+    ├── tests/
+    └── tenants/           # 源码直跑时的数据目录
 ```
 
 默认直接运行源码时，数据会放在 `oci-manager/` 目录下。使用 `start.ps1` 或 Docker 时，数据会放在外层 `data/` 目录。
 
 `auth.yaml`、`tenants.yaml`、`app.db`、`audit.log.jsonl`、`checks.json` 和 `tenants/` 下的私钥文件都是本地数据，已经在 `.gitignore` 中忽略，不要提交到仓库。
+
+实例创建任务已改存 SQLite（`app.db`）。从旧版本升级的部署：历史任务文件 `launch_tasks.json` 不再读取，会静默留在盘上，可以手动删除。
 
 ## 首次登录
 
@@ -110,6 +118,11 @@ docker compose up -d --build
 - `OCI_MANAGER_WEBHOOK_URL`
 - `OCI_MANAGER_NTFY_SERVER`
 - `OCI_MANAGER_NTFY_TOPIC`
+- `OCI_MANAGER_CLEAR_PROXY`
+- `OCI_MANAGER_OCI_CONNECT_TIMEOUT` / `OCI_MANAGER_OCI_READ_TIMEOUT`
+- `OCI_MANAGER_MAX_UPLOAD_MB` / `OCI_MANAGER_MAX_DOWNLOAD_MB`
+- `OCI_MANAGER_TRUSTED_PROXY`（部署在可信反代后置 1，否则登录限速按真实来源 IP）
+- `OCI_MANAGER_SCHEDULER`（置 0 可整体关闭后台调度：定时启停/巡检/快照）
 
 生产或公网环境建议一定设置 `OCI_MANAGER_SECRET_KEY`，并关闭 Flask debug 模式。
 
@@ -131,6 +144,7 @@ docker compose up -d --build
 - `/backup`：备份恢复
 - `/cost`：免费额度与风险提示
 - `/checks`：租户 API 巡检
+- `/checks/idle`：资源闲置检测（停机实例/未挂载卷/空桶）
 
 ## 通知配置
 
