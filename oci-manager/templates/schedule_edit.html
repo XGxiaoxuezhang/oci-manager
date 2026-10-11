@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}编辑定时计划 | OCI 管理器{% endblock %}
+{% block page_title %}编辑定时计划{% endblock %}
+{% block page_desc %}{{ tenant_name }} · {{ schedule.instance_name }}{% endblock %}
+{% block page_actions %}
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/instances">返回实例</a>
+{% endblock %}
+
+{% block content %}
+{% set ef = form if form else schedule %}
+<section class="panel" style="max-width:520px;">
+  <form method="post" action="/tenant/{{ tenant_name }}/schedules/{{ schedule.id }}/edit">
+    <div class="field">
+      <label for="schedule-action">动作</label>
+      <select id="schedule-action" name="action">
+        <option value="start" {{ 'selected' if ef.get('action', schedule.action) == 'start' else '' }}>开机（START）</option>
+        <option value="stop" {{ 'selected' if ef.get('action', schedule.action) == 'stop' else '' }}>关机（优雅 SOFTSTOP）</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="schedule-time">时间（HH:MM，错过会在当天补跑）</label>
+      <input id="schedule-time" name="time_hhmm" value="{{ ef.get('time_hhmm', schedule.time_hhmm) }}" placeholder="08:30" required>
+    </div>
+    <div class="field">
+      <label for="schedule-days">重复</label>
+      <select id="schedule-days" name="days">
+        {% set current_days = ef.get('days', schedule.days) %}
+        <option value="all" {{ 'selected' if current_days == 'all' else '' }}>每天</option>
+        <option value="1,2,3,4,5" {{ 'selected' if current_days == '1,2,3,4,5' else '' }}>工作日</option>
+        <option value="6,7" {{ 'selected' if current_days == '6,7' else '' }}>周末</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" type="submit">保存计划</button>
+  </form>
+</section>
+{% endblock %}

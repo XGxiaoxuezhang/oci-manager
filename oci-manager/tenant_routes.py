@@ -3,36 +3,75 @@ from __future__ import annotations
 import threading
 from uuid import uuid4
 
-from flask import Blueprint, flash, redirect, request, url_for
+from oci_helpers import friendly_error
+from flask import Blueprint, flash, redirect, request, session, url_for
 
 from audit import list_audit_events
 from export_utils import send_csv
+from audit_service import RANGE_OPTIONS, cloud_audit_context
 from launch_manager import LAUNCH_TASKS, TASK_LOCK, append_task_log, clear_finished_tasks, filtered_tasks, launch_context, launch_worker, save_launch_tasks, task_snapshot, update_task
 from rendering import render_page
-from settings import DEFAULT_REGIONS, INSTANCE_ACTIONS
+from settings import DEFAULT_REGIONS, INSTANCE_ACTIONS, INSTANCE_ACTION_LABELS
 from storage import load_tenants, normalize_tenant_name, now_iso, save_tenants
 from tenant_services import (
     append_security_rule,
+    capture_console_history,
     change_ip_context,
+    console_history_content,
     console_private_key_path,
     create_console,
     create_tenant_record,
+    workspace_context,
     create_user_for_tenant,
     dashboard_context,
+    delete_api_key,
     expand_boot_volume,
+    iam_security_context,
+    instance_available_actions,
+    instance_edit_context,
     instance_overview_context,
+    list_console_history_rows,
     list_instance_rows,
+    list_public_ip_rows,
     list_security_list_rows,
     list_user_rows,
+    release_public_ip,
     remove_security_rule,
     remove_tenant_record,
     replace_public_ip,
     rescue_context,
     reset_user_mfa,
+    rotate_api_key,
     security_rules_context,
     terminate_instance,
+    update_instance_configuration,
 )
-from oci_helpers import find_tenant_config, get_compute_client
+from compartment_service import apply_session_compartment, switch_compartment as apply_compartment_switch
+from schedule_service import (
+    add_schedule,
+    days_label,
+    get_schedule,
+    list_schedules,
+    remove_schedule,
+    toggle_schedule,
+    update_schedule,
+    disable_schedules_for_instance,
+)
+from network_service import NSG_PROTOCOLS, add_nsg_rule, network_context, nsg_context, nsg_rules_context, remove_nsg_rule, update_nsg_rule
+from oci_helpers import find_tenant_config, get_block_client, get_compute_client, instance_console_connections
+from volume_service import (
+    attach_volume,
+    create_backup,
+    create_volume,
+    delete_backup,
+    delete_boot_volume,
+    delete_volume,
+    detach_volume,
+    resize_boot_volume,
+    resize_volume,
+    restore_backup,
+    volume_context,
+)
 from timeout_utils import run_with_timeout
 from vnc_tunnel import start_tunnel, start_web_vnc, stop_tunnel, stop_web_vnc, web_vnc_status
 
@@ -40,10 +79,30 @@ tenant_bp = Blueprint("tenant", __name__)
 
 
 def require_tenant(tenant_name: str):
+    """取租户配置，并绑定当前选中的 compartment。
+
+    绑定后的 cfg 会一路传到服务层与后台线程（抢实例任务），所以它们不必依赖
+    request context 就能拿到正确的 compartment。同时挂到 g 上供模板注入。
+    """
+    from flask import g
+
     tenant_cfg = find_tenant_config(tenant_name)
     if tenant_cfg is None:
         flash(f"租户 {tenant_name} 不存在。", "error")
         return None
+    tenant_cfg = apply_session_compartment(tenant_cfg, tenant_name)
+    g.tenant_cfg = tenant_cfg
+    g.tenant_name = tenant_name
+    # 导航缺省值：下次落在全局页时，侧栏/入口默认指向最近使用的租户
+    session["last_tenant"] = tenant_name
+    # ?refresh=1 绕过 TTL 缓存强制拉新
+    g.cache_bypass = request.args.get("refresh") == "1"
+    # 所有写操作都是 POST 且都走这里：请求开始即清该租户缓存，
+    # redirect 后的 GET 重新拉云端最新状态
+    if request.method == "POST":
+        from cache import invalidate_tenant
+
+        invalidate_tenant(tenant_name)
     return tenant_cfg
 
 
@@ -56,26 +115,57 @@ def looks_like_fingerprint(value: str) -> bool:
     return len(parts) == 16 and all(len(part) == 2 and all(ch in "0123456789abcdefABCDEF" for ch in part) for part in parts)
 
 
-@tenant_bp.route("/")
-def index():
+def server_side_vnc_connection_string(tenant_cfg: dict[str, Any], instance_id: str, connection_id: str) -> str:
+    """按连接 ID 从 OCI 取回真正的 VNC 连接串。
+
+    这条连接串最终会被拆成参数交给本地 ssh 进程执行。如果直接采用表单里的值，
+    登录用户就能塞 `-o ProxyCommand=...` 之类的参数让服务端执行任意命令。
+    所以这里只允许客户端提交"选哪个连接"（ID），内容一律以 OCI 返回为准。
+    """
+    for row in instance_console_connections(tenant_cfg, instance_id):
+        if row.get("id") == connection_id:
+            return str(row.get("vnc_connection_string") or "")
+    raise ValueError("未找到对应的控制台连接，它可能已过期，请重新创建。")
+
+
+def server_side_volume_name(tenant_cfg: dict[str, Any], volume_id: str, kind: str = "volume") -> str:
+    """从 OCI 读取卷 / 引导卷的真实名称，作为删除确认的基准。
+
+    表单里随请求一起提交的 volume_name 由客户端提供，伪造成本为零，
+    用它做"确认一致"等于没有校验。这里以服务端读到的资源名为准；
+    读取失败返回空串，调用方据此拒绝删除。
+    """
+    try:
+        block = get_block_client(tenant_cfg)
+        if kind == "boot":
+            return str(getattr(block.get_boot_volume(volume_id).data, "display_name", "") or "")
+        return str(getattr(block.get_volume(volume_id).data, "display_name", "") or "")
+    except Exception:
+        return ""
+
+
+def _dashboard_context() -> dict[str, Any]:
+    """首页与租户页共用的仪表盘数据。
+
+    原先两个 handler 逐字重复，这里收拢成一份。
+    """
     context = dashboard_context(load_tenants())
     context["recent_events"] = list_audit_events(6)
     with TASK_LOCK:
         tasks = [{**task, "logs": list(task.get("logs", []))} for task in LAUNCH_TASKS.values()]
     tasks.sort(key=lambda item: item.get("created_at", ""), reverse=True)
     context["recent_tasks"] = tasks[:6]
-    return render_page("home", **context)
+    return context
+
+
+@tenant_bp.route("/")
+def index():
+    return render_page("home", **_dashboard_context())
 
 
 @tenant_bp.route("/tenants")
 def tenants_home():
-    context = dashboard_context(load_tenants())
-    context["recent_events"] = list_audit_events(6)
-    with TASK_LOCK:
-        tasks = [{**task, "logs": list(task.get("logs", []))} for task in LAUNCH_TASKS.values()]
-    tasks.sort(key=lambda item: item.get("created_at", ""), reverse=True)
-    context["recent_tasks"] = tasks[:6]
-    return render_page("tenants", **context)
+    return render_page("tenants", **_dashboard_context())
 
 
 @tenant_bp.route("/instances")
@@ -89,8 +179,21 @@ def instance_overview():
         tenants = {selected_tenant: tenants[selected_tenant]} if selected_tenant in tenants else {}
     context = dashboard_context(tenants)
     context["selected_tenant"] = selected_tenant
-    context.update(run_with_timeout(20, instance_overview_context, tenants))
+    context.update(run_with_timeout(30, instance_overview_context, tenants))
     return render_page("instance_overview", **context)
+
+
+@tenant_bp.route("/tenant/<tenant_name>/", methods=["GET"])
+def tenant_workspace(tenant_name: str):
+    """租户工作区首页：模块入口 + 该租户的额度用量与近期动态。"""
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        context = run_with_timeout(30, workspace_context, tenant_cfg, tenant_name)
+    except Exception as exc:
+        context = {"usage_items": [], "risks": [], "recent_tasks": [], "recent_events": [], "load_error": str(exc)}
+    return render_page("workspace", tenant_name=tenant_name, **context)
 
 
 @tenant_bp.route("/tenant/add", methods=["GET", "POST"])
@@ -104,37 +207,39 @@ def add_tenant():
         key_file = request.files.get("key_file")
         if not tenant_name:
             flash("租户名称不能为空，并且只能包含字母、数字、点、下划线和短横线。", "error")
-            return redirect(url_for("tenant.add_tenant"))
+            return render_page("add_tenant", regions=DEFAULT_REGIONS, form=request.form)
         if not looks_like_ocid(tenant_id, "tenancy") or not looks_like_ocid(user_id, "user"):
             flash("Tenancy OCID 或 User OCID 格式不正确。", "error")
-            return redirect(url_for("tenant.add_tenant"))
+            return render_page("add_tenant", regions=DEFAULT_REGIONS, form=request.form)
         if not region:
             flash("区域不能为空。", "error")
-            return redirect(url_for("tenant.add_tenant"))
+            return render_page("add_tenant", regions=DEFAULT_REGIONS, form=request.form)
         if not looks_like_fingerprint(fingerprint):
             flash("Fingerprint 格式不正确。", "error")
-            return redirect(url_for("tenant.add_tenant"))
+            return render_page("add_tenant", regions=DEFAULT_REGIONS, form=request.form)
         if not key_file or not key_file.filename:
             flash("请上传 OCI API 私钥文件。", "error")
-            return redirect(url_for("tenant.add_tenant"))
+            return render_page("add_tenant", regions=DEFAULT_REGIONS, form=request.form)
         if not key_file.filename.lower().endswith(".pem"):
             flash("私钥文件必须是 .pem。", "error")
-            return redirect(url_for("tenant.add_tenant"))
+            return render_page("add_tenant", regions=DEFAULT_REGIONS, form=request.form)
 
         tenants = load_tenants()
-        if tenant_name in tenants:
-            flash(f"租户 {tenant_name} 已存在，请换一个名称。", "error")
-            return redirect(url_for("tenant.add_tenant"))
+        # Windows 文件系统大小写不敏感：ABC 与 abc 会共享同一目录，
+        # 删除其一（remove_tenant_record）会连带删掉另一个的私钥
+        if any(existing.lower() == tenant_name.lower() for existing in tenants):
+            flash(f"租户 {tenant_name} 已存在（名称不区分大小写），请换一个名称。", "error")
+            return render_page("add_tenant", regions=DEFAULT_REGIONS, form=request.form)
 
         try:
             create_tenant_record(tenants, tenant_name, tenant_id, user_id, region, fingerprint, key_file)
         except Exception as exc:
-            flash(f"保存租户失败: {exc}", "error")
-            return redirect(url_for("tenant.add_tenant"))
+            flash(f"保存租户失败: {friendly_error(exc)}", "error")
+            return render_page("add_tenant", regions=DEFAULT_REGIONS, form=request.form)
         save_tenants(tenants)
         flash(f"租户 {tenant_name} 已添加。", "success")
         return redirect(url_for("tenant.index"))
-    return render_page("add_tenant", regions=DEFAULT_REGIONS)
+    return render_page("add_tenant", regions=DEFAULT_REGIONS, form={})
 
 
 @tenant_bp.route("/tenant/<tenant_name>/delete", methods=["POST"])
@@ -146,10 +251,28 @@ def delete_tenant(tenant_name: str):
     if request.form.get("confirm_name", "").strip() != tenant_name:
         flash("确认名称不匹配，未删除租户。", "error")
         return redirect(url_for("tenant.index"))
+    removed_cfg = tenants[tenant_name]
     remove_tenant_record(tenants, tenant_name)
     save_tenants(tenants)
+    from oci_helpers import purge_client_cache
+
+    purge_client_cache(removed_cfg)
     flash(f"租户 {tenant_name} 已删除。", "success")
     return redirect(url_for("tenant.index"))
+
+
+@tenant_bp.route("/tenant/<tenant_name>/compartment", methods=["POST"])
+def set_compartment(tenant_name: str):
+    """切换当前租户的 compartment 作用域。
+
+    拿未绑定 compartment 的原始配置去做校验，避免用「上一次的选择」去验证
+    「这一次的选择」，导致切到无效 compartment 后无法回到根。
+    """
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    apply_compartment_switch(find_tenant_config(tenant_name) or tenant_cfg, tenant_name, request.form.get("compartment_id", ""))
+    return redirect(request.form.get("next") or request.referrer or url_for("tenant.list_instances", tenant_name=tenant_name))
 
 
 @tenant_bp.route("/tenant/<tenant_name>/users")
@@ -158,13 +281,24 @@ def list_users(tenant_name: str):
     if tenant_cfg is None:
         return redirect(url_for("tenant.index"))
     try:
-        return render_page("users", tenant_name=tenant_name, users=run_with_timeout(8, list_user_rows, tenant_cfg))
+        ctx = run_with_timeout(15, iam_security_context, tenant_cfg)
+        return render_page("users", tenant_name=tenant_name, **ctx)
     except Exception as exc:
-        flash(f"读取用户列表失败: {exc}", "error")
-        return render_page("users", tenant_name=tenant_name, users=[], load_error=str(exc))
+        flash(f"读取用户列表失败: {friendly_error(exc)}", "error")
+        return render_page("users", tenant_name=tenant_name, users=[], summary={}, findings=[], load_error=str(exc))
 
 
 @tenant_bp.route("/tenant/<tenant_name>/user/create", methods=["POST"])
+def _render_users_with_form(tenant_name: str, tenant_cfg: dict[str, Any], form):
+    """创建用户失败时带值重渲染，避免重填。"""
+    try:
+        ctx = run_with_timeout(15, iam_security_context, tenant_cfg)
+    except Exception as exc:
+        flash(f"读取用户列表失败: {friendly_error(exc)}", "error")
+        ctx = {"users": [], "summary": {}, "findings": [], "load_error": str(exc)}
+    return render_page("users", tenant_name=tenant_name, form=form, **ctx)
+
+
 def create_user(tenant_name: str):
     tenant_cfg = require_tenant(tenant_name)
     if tenant_cfg is None:
@@ -175,12 +309,13 @@ def create_user(tenant_name: str):
     create_password = request.form.get("create_password") == "on"
     if not username or not email:
         flash("用户名和邮箱不能为空。", "error")
-        return redirect(url_for("tenant.list_users", tenant_name=tenant_name))
+        return _render_users_with_form(tenant_name, tenant_cfg, request.form)
     try:
         for message in create_user_for_tenant(tenant_cfg, username, email, is_admin, create_password):
             flash(message, "success")
     except Exception as exc:
-        flash(f"创建用户失败: {exc}", "error")
+        flash(f"创建用户失败: {friendly_error(exc)}", "error")
+        return _render_users_with_form(tenant_name, tenant_cfg, request.form)
     return redirect(url_for("tenant.list_users", tenant_name=tenant_name))
 
 
@@ -193,7 +328,40 @@ def reset_mfa(tenant_name: str, user_id: str):
         reset_user_mfa(tenant_cfg, user_id)
         flash("用户 MFA 已重置。", "success")
     except Exception as exc:
-        flash(f"重置 MFA 失败: {exc}", "error")
+        flash(f"重置 MFA 失败: {friendly_error(exc)}", "error")
+    return redirect(url_for("tenant.list_users", tenant_name=tenant_name))
+
+
+@tenant_bp.route("/tenant/<tenant_name>/user/rotate-key", methods=["POST"])
+def rotate_key(tenant_name: str):
+    """轮换当前配置用户的 API 密钥：先上传云端，成功后再换本地私钥。"""
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    if request.form.get("confirm_text", "").strip().upper() != "ROTATE":
+        flash("确认文本不匹配，未轮换密钥。请输入 ROTATE。", "error")
+        return redirect(url_for("tenant.list_users", tenant_name=tenant_name))
+    try:
+        result = rotate_api_key(tenant_cfg)
+        flash(f"密钥已轮换，新指纹 {result['fingerprint']}。", "success")
+        if result.get("backup_path"):
+            flash(f"旧私钥已备份到 {result['backup_path']}。", "success")
+        flash(f"旧指纹 {result.get('old_fingerprint') or '-'} 仍保留在 OCI，确认新密钥可用后到下方删除。", "error")
+    except Exception as exc:
+        flash(f"轮换密钥失败: {friendly_error(exc)}", "error")
+    return redirect(url_for("tenant.list_users", tenant_name=tenant_name))
+
+
+@tenant_bp.route("/tenant/<tenant_name>/user/<user_id>/delete-key/<fingerprint>", methods=["POST"])
+def delete_key(tenant_name: str, user_id: str, fingerprint: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        delete_api_key(tenant_cfg, user_id, fingerprint)
+        flash(f"已删除 API Key {fingerprint[:16]}…。", "success")
+    except Exception as exc:
+        flash(f"删除 API Key 失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.list_users", tenant_name=tenant_name))
 
 
@@ -202,6 +370,7 @@ def list_instances(tenant_name: str):
     tenant_cfg = require_tenant(tenant_name)
     if tenant_cfg is None:
         return redirect(url_for("tenant.index"))
+    schedules = [{**item, "days_label": days_label(item["days"])} for item in list_schedules(tenant_name)]
     context = {
         "tenant_name": tenant_name,
         "instances": [],
@@ -209,11 +378,13 @@ def list_instances(tenant_name: str):
         "availability_domains": [],
         "subnets": [],
         "images": [],
+        "schedules": schedules,
+        "scheduled_instance_ids": {item["instance_id"] for item in schedules if item["enabled"]},
     }
     try:
         context["instances"] = run_with_timeout(45, list_instance_rows, tenant_cfg)
     except Exception as exc:
-        flash(f"读取实例列表失败: {exc}", "error")
+        flash(f"读取实例列表失败: {friendly_error(exc)}", "error")
         context["load_error"] = str(exc)
     try:
         context.update(run_with_timeout(20, launch_context, tenant_cfg))
@@ -235,7 +406,7 @@ def export_instances(tenant_name: str):
             rows,
         )
     except Exception as exc:
-        flash(f"导出实例失败: {exc}", "error")
+        flash(f"导出实例失败: {friendly_error(exc)}", "error")
         return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
 
 
@@ -244,16 +415,82 @@ def instance_action(tenant_name: str, instance_id: str, action: str):
     tenant_cfg = require_tenant(tenant_name)
     if tenant_cfg is None:
         return redirect(url_for("tenant.index"))
+    # fetch 发起的电源操作返回 JSON，前端局部更新状态徽章，避免整页刷新
+    wants_json = request.headers.get("X-Requested-With") == "fetch"
+    action_label = INSTANCE_ACTION_LABELS.get(action, action)
     if action not in INSTANCE_ACTIONS:
+        if wants_json:
+            return {"ok": False, "message": f"不支持的实例操作: {action}"}
         flash(f"不支持的实例操作: {action}", "error")
         return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
     try:
-        get_compute_client(tenant_cfg).instance_action(instance_id, INSTANCE_ACTIONS[action])
-        flash(f"实例操作已提交: {action}", "success")
+        compute_client = get_compute_client(tenant_cfg)
+        current_state = compute_client.get_instance(instance_id).data.lifecycle_state
+        if action not in instance_available_actions(current_state):
+            raise ValueError(f"当前实例状态 {current_state} 不允许执行{action_label}操作。")
+        compute_client.instance_action(instance_id, INSTANCE_ACTIONS[action])
+        new_state = compute_client.get_instance(instance_id).data.lifecycle_state
+        if new_state == current_state:
+            # 刚提交的动作通常还没反映到 lifecycle_state，如实说明而不是假装已变更
+            message = f"已提交{action_label}，状态变更生效中（当前 {current_state}），稍后刷新查看。"
+            reported_state = None
+        else:
+            message = f"已提交{action_label}，实例状态 {current_state} → {new_state}。"
+            reported_state = new_state
+        if wants_json:
+            return {"ok": True, "message": message, "state": reported_state}
+        flash(message, "success")
     except Exception as exc:
-        flash(f"实例操作失败: {exc}", "error")
+        if wants_json:
+            return {"ok": False, "message": f"实例操作失败: {friendly_error(exc)}"}
+        flash(f"实例操作失败: {friendly_error(exc)}", "error")
     if request.form.get("next_page") == "rescue":
         return redirect(url_for("tenant.rescue_center", tenant_name=tenant_name, instance_id=instance_id))
+    return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
+
+
+@tenant_bp.route("/tenant/<tenant_name>/instances/batch-action", methods=["POST"])
+def instance_batch_action(tenant_name: str):
+    """批量电源操作：仅放行可逆/低险动作（启动、软停），逐台校验状态。"""
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    action = request.form.get("action", "").strip()
+    instance_ids = [value for value in request.form.getlist("instance_id") if value]
+    allowed = {"start", "softstop"}
+    if action not in allowed:
+        flash(f"批量操作仅支持：{'、'.join(sorted(allowed))}。", "error")
+        return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
+    if not instance_ids:
+        flash("请先勾选要操作的实例。", "error")
+        return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
+    action_label = INSTANCE_ACTION_LABELS.get(action, action)
+
+    def _apply(instance_id: str):
+        try:
+            client = get_compute_client(tenant_cfg)
+            state = client.get_instance(instance_id).data.lifecycle_state
+            if action not in instance_available_actions(state):
+                return instance_id, "skipped", f"状态 {state} 不允许{action_label}"
+            client.instance_action(instance_id, INSTANCE_ACTIONS[action])
+            return instance_id, "ok", ""
+        except Exception as exc:
+            return instance_id, "error", friendly_error(exc)
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(_apply, instance_ids))
+
+    ok = [r for r in results if r[1] == "ok"]
+    skipped = [r for r in results if r[1] == "skipped"]
+    failed = [r for r in results if r[1] == "error"]
+    if failed:
+        detail = "；".join(f"{name}: {msg}" for name, _, msg in failed[:5])
+        flash(f"批量{action_label}：成功 {len(ok)} 台，失败 {len(failed)} 台。{detail}", "error")
+    else:
+        extra = f"，跳过 {len(skipped)} 台" if skipped else ""
+        flash(f"批量{action_label}：成功 {len(ok)} 台{extra}。", "success")
     return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
 
 
@@ -270,8 +507,11 @@ def instance_terminate(tenant_name: str, instance_id: str):
             request.form.get("preserve_boot_volume") == "on",
         )
         flash(f"实例 {name} 终止请求已提交。", "success")
+        disabled = disable_schedules_for_instance(tenant_name, instance_id)
+        if disabled:
+            flash(f"已同时禁用该实例的 {disabled} 条定时启停计划。", "success")
     except Exception as exc:
-        flash(f"终止实例失败: {exc}", "error")
+        flash(f"终止实例失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
 
 
@@ -282,18 +522,431 @@ def change_ip(tenant_name: str, instance_id: str):
         return redirect(url_for("tenant.index"))
     try:
         if request.method == "POST":
-            new_ip, _ = replace_public_ip(tenant_cfg, instance_id)
+            release_old = request.form.get("release_old") == "on"
+            new_ip, info = replace_public_ip(tenant_cfg, instance_id, release_old=release_old)
+            for released in info.get("released", []):
+                flash(f"已释放旧公网 IP {released}。", "success")
+            if info.get("release_error"):
+                flash(info["release_error"], "error")
             flash(f"已分配新的公网 IP: {new_ip}", "success")
             return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
         return render_page("change_ip", tenant_name=tenant_name, instance=change_ip_context(tenant_cfg, instance_id))
     except Exception as exc:
-        flash(f"更换公网 IP 失败: {exc}", "error")
+        flash(f"更换公网 IP 失败: {friendly_error(exc)}", "error")
         return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
 
 
-@tenant_bp.route("/tenant/<tenant_name>/launcher")
-def launcher(tenant_name: str):
-    return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
+@tenant_bp.route("/tenant/<tenant_name>/public-ips")
+def list_public_ips(tenant_name: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        rows = run_with_timeout(20, list_public_ip_rows, tenant_cfg)
+        return render_page(
+            "public_ips",
+            tenant_name=tenant_name,
+            public_ips=rows,
+            orphan_count=sum(1 for row in rows if not row["attached"]),
+        )
+    except Exception as exc:
+        flash(f"读取公网 IP 失败: {friendly_error(exc)}", "error")
+        return render_page("public_ips", tenant_name=tenant_name, public_ips=[], orphan_count=0, load_error=str(exc))
+
+
+@tenant_bp.route("/tenant/<tenant_name>/public-ips/release", methods=["POST"])
+def release_public_ip_view(tenant_name: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    public_ip_id = request.form.get("public_ip_id", "").strip()
+    try:
+        if not public_ip_id:
+            raise ValueError("缺少公网 IP 标识。")
+        released = release_public_ip(tenant_cfg, public_ip_id)
+        flash(f"已释放公网 IP {released}。", "success")
+    except Exception as exc:
+        flash(f"释放公网 IP 失败: {friendly_error(exc)}", "error")
+    return redirect(url_for("tenant.list_public_ips", tenant_name=tenant_name))
+
+
+@tenant_bp.route("/tenant/<tenant_name>/network")
+def network(tenant_name: str):
+    """VCN / 子网 / 路由表 / 网关只读视图。"""
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        context = run_with_timeout(30, network_context, tenant_cfg)
+    except Exception as exc:
+        context = {"vcns": [], "subnets": [], "route_tables": [], "gateways": [], "load_error": str(exc)}
+    return render_page("network", tenant_name=tenant_name, **context)
+
+
+@tenant_bp.route("/tenant/<tenant_name>/nsg")
+def list_nsgs(tenant_name: str):
+    """网络安全组列表。NSG 与 Security List 是并集生效，两边都要看。"""
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        context = run_with_timeout(25, nsg_context, tenant_cfg)
+    except Exception as exc:
+        context = {"nsgs": [], "load_error": str(exc)}
+        flash(f"读取网络安全组失败: {friendly_error(exc)}", "error")
+    return render_page("nsg", tenant_name=tenant_name, **context)
+
+
+@tenant_bp.route("/tenant/<tenant_name>/nsg/<nsg_id>")
+def nsg_rules(tenant_name: str, nsg_id: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        context = run_with_timeout(25, nsg_rules_context, tenant_cfg, nsg_id)
+    except Exception as exc:
+        flash(f"读取 NSG 规则失败: {friendly_error(exc)}", "error")
+        return redirect(url_for("tenant.list_nsgs", tenant_name=tenant_name))
+    return render_page("nsg_rules", tenant_name=tenant_name, protocol_options=NSG_PROTOCOLS, **context)
+
+
+@tenant_bp.route("/tenant/<tenant_name>/nsg/<nsg_id>/rule/add", methods=["POST"])
+def add_nsg_rule_view(tenant_name: str, nsg_id: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        add_nsg_rule(
+            tenant_cfg,
+            nsg_id,
+            request.form.get("direction", "INGRESS"),
+            request.form.get("protocol", "6"),
+            request.form.get("cidr", ""),
+            request.form.get("ports", ""),
+            request.form.get("description", ""),
+            request.form.get("stateless") == "on",
+        )
+        flash("NSG 规则已添加。", "success")
+    except Exception as exc:
+        flash(f"添加 NSG 规则失败: {friendly_error(exc)}", "error")
+    return redirect(url_for("tenant.nsg_rules", tenant_name=tenant_name, nsg_id=nsg_id))
+
+
+@tenant_bp.route("/tenant/<tenant_name>/nsg/<nsg_id>/rule/<rule_id>/update", methods=["POST"])
+def update_nsg_rule_view(tenant_name: str, nsg_id: str, rule_id: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        update_nsg_rule(
+            tenant_cfg,
+            nsg_id,
+            rule_id,
+            request.form.get("direction", "INGRESS"),
+            request.form.get("protocol", "6"),
+            request.form.get("cidr", ""),
+            request.form.get("ports", ""),
+            request.form.get("description", ""),
+            request.form.get("stateless") == "on",
+        )
+        flash("NSG 规则已更新。", "success")
+    except Exception as exc:
+        flash(f"更新 NSG 规则失败: {friendly_error(exc)}", "error")
+    return redirect(url_for("tenant.nsg_rules", tenant_name=tenant_name, nsg_id=nsg_id))
+
+
+@tenant_bp.route("/tenant/<tenant_name>/nsg/<nsg_id>/rule/<rule_id>/delete", methods=["POST"])
+def delete_nsg_rule_view(tenant_name: str, nsg_id: str, rule_id: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        remove_nsg_rule(tenant_cfg, nsg_id, rule_id)
+        flash("NSG 规则已删除。", "success")
+    except Exception as exc:
+        flash(f"删除 NSG 规则失败: {friendly_error(exc)}", "error")
+    return redirect(url_for("tenant.nsg_rules", tenant_name=tenant_name, nsg_id=nsg_id))
+
+
+@tenant_bp.route("/tenant/<tenant_name>/volumes/export")
+def volumes_export(tenant_name: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        context = run_with_timeout(35, volume_context, tenant_cfg)
+    except Exception as exc:
+        flash(f"导出失败: {friendly_error(exc)}", "error")
+        return redirect(url_for("tenant.volumes", tenant_name=tenant_name))
+    rows = []
+    for kind, source in (("数据卷", context["volumes"]), ("引导卷", context["boot_volumes"])):
+        for row in source:
+            rows.append(
+                {
+                    "类型": kind,
+                    "名称": row["name"],
+                    "大小(GB)": row["size_gbs"],
+                    "状态": row["state"],
+                    "可用域": row["availability_domain"],
+                    "挂载实例": (row["attached"] or {}).get("instance_name", "-"),
+                    "创建时间": row["created"],
+                }
+            )
+    headers = ["类型", "名称", "大小(GB)", "状态", "可用域", "挂载实例", "创建时间"]
+    return send_csv(f"{tenant_name}-volumes.csv", headers, rows)
+
+
+@tenant_bp.route("/tenant/<tenant_name>/public-ips/export")
+def public_ips_export(tenant_name: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        ip_rows = run_with_timeout(20, list_public_ip_rows, tenant_cfg)
+    except Exception as exc:
+        flash(f"导出失败: {friendly_error(exc)}", "error")
+        return redirect(url_for("tenant.list_public_ips", tenant_name=tenant_name))
+    rows = [
+        {
+            "名称": row["display_name"],
+            "IP 地址": row["ip_address"],
+            "状态": row["state"],
+            "已挂载": "是" if row["attached"] else "否",
+            "挂载对象类型": row["assigned_entity_type"],
+            "挂载对象 ID": row["assigned_entity_id"],
+            "创建时间": row["created"],
+        }
+        for row in ip_rows
+    ]
+    headers = ["名称", "IP 地址", "状态", "已挂载", "挂载对象类型", "挂载对象 ID", "创建时间"]
+    return send_csv(f"{tenant_name}-public-ips.csv", headers, rows)
+
+
+@tenant_bp.route("/tenant/<tenant_name>/volumes")
+def volumes(tenant_name: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        context = run_with_timeout(35, volume_context, tenant_cfg)
+    except Exception as exc:
+        context = {"volumes": [], "boot_volumes": [], "backups": [], "instances": [], "availability_domains": [], "orphan_count": 0, "load_error": str(exc)}
+        flash(f"读取块存储失败: {friendly_error(exc)}", "error")
+    return render_page("volumes", tenant_name=tenant_name, **context)
+
+
+def _back_to_volumes(tenant_name: str):
+    return redirect(url_for("tenant.volumes", tenant_name=tenant_name))
+
+
+@tenant_bp.route("/tenant/<tenant_name>/volumes/create", methods=["POST"])
+def create_volume_view(tenant_name: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        size = int(request.form.get("size_gbs", "50"))
+        if size < 50 or size > 32768:
+            raise ValueError("卷大小需在 50 ~ 32768 GB 之间（OCI 自定义卷最小 50 GB）。")
+        create_volume(tenant_cfg, request.form.get("availability_domain", ""), size, request.form.get("display_name", ""))
+        flash("块存储卷已创建。", "success")
+    except Exception as exc:
+        flash(f"创建卷失败: {friendly_error(exc)}", "error")
+    return _back_to_volumes(tenant_name)
+
+
+@tenant_bp.route("/tenant/<tenant_name>/volume/<volume_id>/attach", methods=["POST"])
+def attach_volume_view(tenant_name: str, volume_id: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        instance_id = request.form.get("instance_id", "").strip()
+        if not instance_id:
+            raise ValueError("请选择要挂载到的实例。")
+        attach_volume(tenant_cfg, volume_id, instance_id)
+        flash("已发起挂载，稍后刷新查看状态。", "success")
+    except Exception as exc:
+        flash(f"挂载失败: {friendly_error(exc)}", "error")
+    return _back_to_volumes(tenant_name)
+
+
+@tenant_bp.route("/tenant/<tenant_name>/volume-attachment/<attachment_id>/detach", methods=["POST"])
+def detach_volume_view(tenant_name: str, attachment_id: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        detach_volume(tenant_cfg, attachment_id)
+        flash("已发起卸载，稍后刷新查看状态。", "success")
+    except Exception as exc:
+        flash(f"卸载失败: {friendly_error(exc)}", "error")
+    return _back_to_volumes(tenant_name)
+
+
+@tenant_bp.route("/tenant/<tenant_name>/volume/<volume_id>/resize", methods=["POST"])
+def resize_volume_view(tenant_name: str, volume_id: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        size = int(request.form.get("size_gbs", "0"))
+        if size < 50 or size > 32768:
+            raise ValueError("卷大小需在 50 ~ 32768 GB 之间（OCI 自定义卷最小 50 GB）。")
+        if size <= int(request.form.get("current_size", "0") or 0):
+            raise ValueError("新大小必须大于当前大小，OCI 卷只能扩容不能缩容。")
+        resize_volume(tenant_cfg, volume_id, size)
+        flash(f"已提交扩容到 {size} GB。扩容完成后需在实例内扩展分区与文件系统（如 growpart + resize2fs/xfs_growfs），否则 OS 内看不到新空间。", "success")
+    except Exception as exc:
+        flash(f"扩容失败: {friendly_error(exc)}", "error")
+    return _back_to_volumes(tenant_name)
+
+
+@tenant_bp.route("/tenant/<tenant_name>/volume/<volume_id>/delete", methods=["POST"])
+def delete_volume_view(tenant_name: str, volume_id: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        expected_name = server_side_volume_name(tenant_cfg, volume_id, "volume")
+        if not expected_name or request.form.get("confirm_name", "").strip() != expected_name:
+            raise ValueError("名称校验未通过，已取消删除。")
+        delete_volume(tenant_cfg, volume_id)
+        flash("卷已删除。", "success")
+    except Exception as exc:
+        flash(f"删除卷失败: {friendly_error(exc)}", "error")
+    return _back_to_volumes(tenant_name)
+
+
+@tenant_bp.route("/tenant/<tenant_name>/volume/<volume_id>/backup", methods=["POST"])
+def backup_volume_view(tenant_name: str, volume_id: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        create_backup(tenant_cfg, volume_id, request.form.get("display_name", ""))
+        flash("已发起备份，可在下方备份列表查看进度。", "success")
+    except Exception as exc:
+        flash(f"创建备份失败: {friendly_error(exc)}", "error")
+    return _back_to_volumes(tenant_name)
+
+
+@tenant_bp.route("/tenant/<tenant_name>/boot-volume/<boot_volume_id>/resize", methods=["POST"])
+def resize_boot_volume_view(tenant_name: str, boot_volume_id: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        size = int(request.form.get("size_gbs", "0"))
+        if size <= int(request.form.get("current_size", "0") or 0):
+            raise ValueError("新大小必须大于当前大小，引导卷只能扩容不能缩容。")
+        resize_boot_volume(tenant_cfg, boot_volume_id, size)
+        flash(f"已提交引导卷扩容到 {size} GB。完成后需在实例内执行 sudo /usr/libexec/oci-growfs（Oracle Linux）或 growpart + resize 文件系统，否则 OS 内看不到新空间。", "success")
+    except Exception as exc:
+        flash(f"引导卷扩容失败: {friendly_error(exc)}", "error")
+    return _back_to_volumes(tenant_name)
+
+
+@tenant_bp.route("/tenant/<tenant_name>/boot-volume/<boot_volume_id>/delete", methods=["POST"])
+def delete_boot_volume_view(tenant_name: str, boot_volume_id: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        expected_name = server_side_volume_name(tenant_cfg, boot_volume_id, "boot")
+        if not expected_name or request.form.get("confirm_name", "").strip() != expected_name:
+            raise ValueError("名称校验未通过，已取消删除。")
+        delete_boot_volume(tenant_cfg, boot_volume_id)
+        flash("引导卷已删除。", "success")
+    except Exception as exc:
+        flash(f"删除引导卷失败: {friendly_error(exc)}", "error")
+    return _back_to_volumes(tenant_name)
+
+
+@tenant_bp.route("/tenant/<tenant_name>/volume-backup/<backup_id>/restore", methods=["POST"])
+def restore_backup_view(tenant_name: str, backup_id: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        volume_id = restore_backup(
+            tenant_cfg,
+            backup_id,
+            request.form.get("availability_domain", ""),
+            request.form.get("display_name", ""),
+        )
+        flash(f"已从备份创建新卷 {volume_id[:24]}…，请在卷列表查看。", "success")
+    except Exception as exc:
+        flash(f"从备份恢复失败: {friendly_error(exc)}", "error")
+    return _back_to_volumes(tenant_name)
+
+
+@tenant_bp.route("/tenant/<tenant_name>/volume-backup/<backup_id>/delete", methods=["POST"])
+def delete_backup_view(tenant_name: str, backup_id: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        delete_backup(tenant_cfg, backup_id)
+        flash("备份已删除。", "success")
+    except Exception as exc:
+        flash(f"删除备份失败: {friendly_error(exc)}", "error")
+    return _back_to_volumes(tenant_name)
+
+
+@tenant_bp.route("/tenant/<tenant_name>/cloud-audit")
+def cloud_audit(tenant_name: str):
+    """OCI 云端审计日志：谁在什么时候、用什么凭据、从哪个 IP 动过什么。"""
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        hours = int(request.args.get("hours", "24"))
+    except ValueError:
+        hours = 24
+    keyword = request.args.get("q", "").strip()
+    context = {
+        "tenant_name": tenant_name,
+        "audit_events": [],
+        "audit_summary": {"total": 0, "top_principals": [], "top_ips": [], "top_actions": []},
+        "audit_hours": hours,
+        "audit_keyword": keyword,
+        "audit_range_options": RANGE_OPTIONS,
+    }
+    try:
+        context.update(run_with_timeout(40, cloud_audit_context, tenant_cfg, hours, keyword))
+        context["tenant_name"] = tenant_name
+    except Exception as exc:
+        flash(f"读取云端审计日志失败: {friendly_error(exc)}", "error")
+        context["load_error"] = str(exc)
+    return render_page("cloud_audit", **context)
+
+
+@tenant_bp.route("/tenant/<tenant_name>/instance/<instance_id>/edit", methods=["GET", "POST"])
+def edit_instance(tenant_name: str, instance_id: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    if request.method == "POST":
+        try:
+            result = update_instance_configuration(
+                tenant_cfg,
+                instance_id,
+                request.form.get("display_name", ""),
+                request.form.get("ocpus", ""),
+                request.form.get("memory_gbs", ""),
+            )
+            changed = "、".join("显示名称" if item == "name" else "CPU/内存" for item in result["changed"])
+            flash(f"实例 {result['instance_name']} 更新请求已提交：{changed}。", "success")
+            return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
+        except Exception as exc:
+            flash(f"更新实例失败: {friendly_error(exc)}", "error")
+    try:
+        context = instance_edit_context(tenant_cfg, instance_id)
+        return render_page("instance_edit", tenant_name=tenant_name, **context)
+    except Exception as exc:
+        flash(f"读取实例编辑信息失败: {friendly_error(exc)}", "error")
+        return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
 
 
 @tenant_bp.route("/tenant/<tenant_name>/instances/create", methods=["POST"])
@@ -375,7 +1028,7 @@ def rescue_center(tenant_name: str, instance_id: str):
             **run_with_timeout(30, rescue_context, tenant_cfg, instance_id),
         )
     except Exception as exc:
-        flash(f"读取救机信息失败: {exc}", "error")
+        flash(f"读取救机信息失败: {friendly_error(exc)}", "error")
         return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
 
 
@@ -393,17 +1046,21 @@ def create_console_connection(tenant_name: str, instance_id: str):
         suffix = " 已使用本地控制台专用密钥。" if generated else ""
         flash(f"控制台连接已创建: {connection_id}.{suffix}", "success")
     except Exception as exc:
-        flash(f"创建串口控制台连接失败: {exc}", "error")
+        flash(f"创建串口控制台连接失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.rescue_center", tenant_name=tenant_name, instance_id=instance_id))
 
 
 @tenant_bp.route("/tenant/<tenant_name>/instance/<instance_id>/rescue/vnc/start", methods=["POST"])
 def start_vnc_tunnel(tenant_name: str, instance_id: str):
-    if require_tenant(tenant_name) is None:
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
         return redirect(url_for("tenant.index"))
     connection_id = request.form.get("connection_id", "").strip()
-    vnc_connection_string = request.form.get("vnc_connection_string", "").strip()
-    if not connection_id or not vnc_connection_string:
+    if not connection_id:
+        flash("请选择要使用的控制台连接。", "error")
+        return redirect(url_for("tenant.rescue_center", tenant_name=tenant_name, instance_id=instance_id))
+    vnc_connection_string = server_side_vnc_connection_string(tenant_cfg, instance_id, connection_id)
+    if not vnc_connection_string:
         flash("没有可用的 VNC 连接串。", "error")
         return redirect(url_for("tenant.rescue_center", tenant_name=tenant_name, instance_id=instance_id))
     try:
@@ -411,17 +1068,21 @@ def start_vnc_tunnel(tenant_name: str, instance_id: str):
         label = "已存在" if result["already_running"] else "已启动"
         flash(f"本地 VNC 隧道{label}: 127.0.0.1:{result['local_port']}。", "success")
     except Exception as exc:
-        flash(f"启动本地 VNC 隧道失败: {exc}", "error")
+        flash(f"启动本地 VNC 隧道失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.rescue_center", tenant_name=tenant_name, instance_id=instance_id))
 
 
 @tenant_bp.route("/tenant/<tenant_name>/instance/<instance_id>/rescue/novnc/start", methods=["POST"])
 def start_novnc(tenant_name: str, instance_id: str):
-    if require_tenant(tenant_name) is None:
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
         return redirect(url_for("tenant.index"))
     connection_id = request.form.get("connection_id", "").strip()
-    vnc_connection_string = request.form.get("vnc_connection_string", "").strip()
-    if not connection_id or not vnc_connection_string:
+    if not connection_id:
+        flash("请选择要使用的控制台连接。", "error")
+        return redirect(url_for("tenant.rescue_center", tenant_name=tenant_name, instance_id=instance_id))
+    vnc_connection_string = server_side_vnc_connection_string(tenant_cfg, instance_id, connection_id)
+    if not vnc_connection_string:
         flash("没有可用的 VNC 连接串。", "error")
         return redirect(url_for("tenant.rescue_center", tenant_name=tenant_name, instance_id=instance_id))
     try:
@@ -429,7 +1090,7 @@ def start_novnc(tenant_name: str, instance_id: str):
         flash(f"Web VNC 已启动: WebSocket {result['web_port']} / VNC {result['vnc_port']}。", "success")
         return redirect(url_for("tenant.novnc_view", tenant_name=tenant_name, instance_id=instance_id, connection_id=connection_id))
     except Exception as exc:
-        flash(f"启动 Web VNC 失败: {exc}", "error")
+        flash(f"启动 Web VNC 失败: {friendly_error(exc)}", "error")
         return redirect(url_for("tenant.rescue_center", tenant_name=tenant_name, instance_id=instance_id))
 
 
@@ -448,6 +1109,7 @@ def novnc_view(tenant_name: str, instance_id: str, connection_id: str):
         connection_id=connection_id,
         web_port=status["web_port"],
         vnc_port=status["vnc_port"],
+        token=status.get("token", ""),
     )
 
 
@@ -473,7 +1135,7 @@ def resize_boot_volume(tenant_name: str, instance_id: str):
         expand_boot_volume(tenant_cfg, instance_id, new_size)
         flash(f"引导卷扩容请求已提交，新容量 {new_size} GB。", "success")
     except Exception as exc:
-        flash(f"引导卷扩容失败: {exc}", "error")
+        flash(f"引导卷扩容失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.rescue_center", tenant_name=tenant_name, instance_id=instance_id))
 
 
@@ -485,7 +1147,7 @@ def list_security_lists(tenant_name: str):
     try:
         return render_page("security_lists", tenant_name=tenant_name, security_lists=run_with_timeout(8, list_security_list_rows, tenant_cfg))
     except Exception as exc:
-        flash(f"读取安全列表失败: {exc}", "error")
+        flash(f"读取安全列表失败: {friendly_error(exc)}", "error")
         return render_page("security_lists", tenant_name=tenant_name, security_lists=[], load_error=str(exc))
 
 
@@ -497,7 +1159,7 @@ def security_list_rules(tenant_name: str, security_list_id: str):
     try:
         return render_page("security_rules", tenant_name=tenant_name, **run_with_timeout(8, security_rules_context, tenant_cfg, security_list_id))
     except Exception as exc:
-        flash(f"读取安全规则失败: {exc}", "error")
+        flash(f"读取安全规则失败: {friendly_error(exc)}", "error")
         return render_page(
             "security_rules",
             tenant_name=tenant_name,
@@ -526,7 +1188,7 @@ def add_rule(tenant_name: str, security_list_id: str):
         )
         flash("安全规则已添加。", "success")
     except Exception as exc:
-        flash(f"添加规则失败: {exc}", "error")
+        flash(f"添加规则失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.security_list_rules", tenant_name=tenant_name, security_list_id=security_list_id))
 
 
@@ -536,8 +1198,136 @@ def delete_rule(tenant_name: str, security_list_id: str, rule_type: str, rule_in
     if tenant_cfg is None:
         return redirect(url_for("tenant.index"))
     try:
-        remove_security_rule(tenant_cfg, security_list_id, rule_type, rule_index)
+        remove_security_rule(
+            tenant_cfg,
+            security_list_id,
+            rule_type,
+            rule_index,
+            expected_signature=request.form.get("rule_sig", ""),
+        )
         flash("安全规则已删除。", "success")
     except Exception as exc:
-        flash(f"删除规则失败: {exc}", "error")
+        flash(f"删除规则失败: {friendly_error(exc)}", "error")
     return redirect(url_for("tenant.security_list_rules", tenant_name=tenant_name, security_list_id=security_list_id))
+
+
+# ===== 定时启停 =====
+
+
+@tenant_bp.route("/tenant/<tenant_name>/schedules/<int:schedule_id>/edit", methods=["GET", "POST"])
+def schedule_edit(tenant_name: str, schedule_id: int):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    row = get_schedule(tenant_name, schedule_id)
+    if row is None:
+        flash("定时计划不存在。", "error")
+        return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
+    if request.method == "POST":
+        try:
+            update_schedule(
+                tenant_name,
+                schedule_id,
+                request.form.get("action", "start").strip(),
+                request.form.get("time_hhmm", "").strip(),
+                request.form.get("days", "all").strip(),
+            )
+            flash("定时计划已更新。", "success")
+            return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
+        except Exception as exc:
+            flash(f"更新定时计划失败: {friendly_error(exc)}", "error")
+            row = {**row, "action": request.form.get("action", row["action"]),
+                   "time_hhmm": request.form.get("time_hhmm", row["time_hhmm"]),
+                   "days": request.form.get("days", row["days"])}
+    return render_page("schedule_edit", tenant_name=tenant_name, schedule=row, form=request.form)
+
+
+@tenant_bp.route("/tenant/<tenant_name>/schedules/add", methods=["POST"])
+def schedule_add(tenant_name: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    instance_id = request.form.get("instance_id", "").strip()
+    instance_name = request.form.get("instance_name", "").strip() or instance_id
+    action = request.form.get("action", "stop").strip()
+    time_hhmm = request.form.get("time", "").strip()
+    days = request.form.get("days", "all").strip()
+    try:
+        add_schedule(tenant_name, instance_id, instance_name, action, time_hhmm, days)
+        flash(f"已添加定时计划：{instance_name} 每天 {time_hhmm} {('停止' if action == 'stop' else '启动')}。", "success")
+    except Exception as exc:
+        flash(f"添加定时计划失败: {friendly_error(exc)}", "error")
+    return redirect(url_for("tenant.list_instances", tenant_name=tenant_name) + "#schedules")
+
+
+@tenant_bp.route("/tenant/<tenant_name>/schedules/<int:schedule_id>/delete", methods=["POST"])
+def schedule_delete(tenant_name: str, schedule_id: int):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    remove_schedule(tenant_name, schedule_id)
+    flash("定时计划已删除。", "success")
+    return redirect(url_for("tenant.list_instances", tenant_name=tenant_name) + "#schedules")
+
+
+@tenant_bp.route("/tenant/<tenant_name>/schedules/<int:schedule_id>/toggle", methods=["POST"])
+def schedule_toggle(tenant_name: str, schedule_id: int):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    schedules = {item["id"]: item for item in list_schedules(tenant_name)}
+    item = schedules.get(schedule_id)
+    if item is None:
+        flash("定时计划不存在。", "error")
+    else:
+        toggle_schedule(tenant_name, schedule_id, not item["enabled"])
+        flash("定时计划已{}。".format("启用" if not item["enabled"] else "停用"), "success")
+    return redirect(url_for("tenant.list_instances", tenant_name=tenant_name) + "#schedules")
+
+
+# ===== 控制台历史（启动日志）=====
+
+
+@tenant_bp.route("/tenant/<tenant_name>/console-history")
+def console_history(tenant_name: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    history_id = request.args.get("history_id", "").strip()
+    rows: list[dict] = []
+    content = ""
+    state = ""
+    pending = False
+    try:
+        rows = run_with_timeout(15, list_console_history_rows, tenant_cfg)
+        if history_id:
+            state, content = run_with_timeout(15, console_history_content, tenant_cfg, history_id)
+            pending = state not in ("SUCCEEDED", "FAILED")
+            if pending:
+                # 生成中：页面 5 秒自动刷新等结果
+                pass
+    except Exception as exc:
+        flash(f"读取控制台历史失败: {friendly_error(exc)}", "error")
+    return render_page(
+        "console_history",
+        tenant_name=tenant_name,
+        rows=rows,
+        history_id=history_id,
+        content=content,
+        state=state,
+        pending=pending,
+    )
+
+
+@tenant_bp.route("/tenant/<tenant_name>/console-history/capture/<instance_id>", methods=["POST"])
+def console_history_capture(tenant_name: str, instance_id: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        result = run_with_timeout(15, capture_console_history, tenant_cfg, instance_id)
+        flash(f"已发起抓取（状态 {result['state']}），稍候查看内容。", "success")
+        return redirect(url_for("tenant.console_history", tenant_name=tenant_name, history_id=result["id"]))
+    except Exception as exc:
+        flash(f"抓取控制台历史失败: {friendly_error(exc)}", "error")
+        return redirect(url_for("tenant.console_history", tenant_name=tenant_name))

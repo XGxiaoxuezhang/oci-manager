@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from io import BytesIO
+from typing import Any
 
+from oci_helpers import friendly_error
 from flask import Blueprint, flash, redirect, request, send_file, url_for
 
 from database_service import (
     create_autonomous_database_backup,
     create_autonomous_database,
     delete_autonomous_database,
+    spawn_provision_watcher,
     generate_wallet,
     list_autonomous_databases_context,
     start_autonomous_database,
@@ -21,6 +24,21 @@ from tenant_routes import require_tenant
 from timeout_utils import run_with_timeout
 
 database_bp = Blueprint("database", __name__)
+
+
+def _server_side_display_name(tenant_cfg: dict[str, Any], database_id: str) -> str:
+    """从 OCI 读取数据库的真实名称，作为删除确认的基准。
+
+    返回值不含命中时为 ""，调用方据此拒绝删除而不是放行。
+    """
+    try:
+        context = run_with_timeout(10, list_autonomous_databases_context, tenant_cfg, database_id)
+    except Exception:
+        return ""
+    selected = context.get("selected_database") or {}
+    if isinstance(selected, dict):
+        return str(selected.get("display_name") or "")
+    return str(getattr(selected, "display_name", "") or "")
 
 
 @database_bp.route("/databases")
@@ -41,7 +59,7 @@ def databases_home(tenant_name: str):
         context = run_with_timeout(8, list_autonomous_databases_context, tenant_cfg, database_id)
         return render_page("databases", tenant_name=tenant_name, **context)
     except Exception as exc:
-        flash(f"读取自治数据库失败：{exc}", "error")
+        flash(f"读取自治数据库失败：{friendly_error(exc)}", "error")
         return render_page(
             "databases",
             tenant_name=tenant_name,
@@ -67,8 +85,25 @@ def databases_export(tenant_name: str):
             context["autonomous_databases"],
         )
     except Exception as exc:
-        flash(f"导出数据库失败：{exc}", "error")
+        flash(f"导出数据库失败：{friendly_error(exc)}", "error")
         return redirect(url_for("database.databases_home", tenant_name=tenant_name))
+
+
+def _render_databases_with_form(tenant_name: str, tenant_cfg: dict[str, Any], form):
+    """创建表单校验/提交失败时带值重渲染，避免用户重填十几个字段。"""
+    try:
+        context = run_with_timeout(8, list_autonomous_databases_context, tenant_cfg, None)
+    except Exception as exc:
+        flash(f"读取自治数据库失败：{friendly_error(exc)}", "error")
+        context = {
+            "autonomous_databases": [],
+            "selected_database": None,
+            "backups": [],
+            "database_stats": {"total": 0, "available": 0, "free_tier": 0},
+            "database_form_defaults": {"db_version": "19c", "cpu_core_count": 1, "storage_size_gbs": 20, "character_set": "AL32UTF8", "ncharacter_set": "AL16UTF16"},
+            "load_error": str(exc),
+        }
+    return render_page("databases", tenant_name=tenant_name, create_form=form, **context)
 
 
 @database_bp.route("/tenant/<tenant_name>/databases/create", methods=["POST"])
@@ -94,13 +129,13 @@ def databases_create(tenant_name: str):
         storage_size_gbs = int(request.form.get("storage_size_gbs", "20") or "20")
     except ValueError:
         flash("CPU 核数和存储大小必须是整数。", "error")
-        return redirect(url_for("database.databases_home", tenant_name=tenant_name))
+        return _render_databases_with_form(tenant_name, tenant_cfg, request.form)
     if cpu_core_count < 1 or storage_size_gbs < 20:
         flash("CPU 至少 1 核，存储至少 20 GB。", "error")
-        return redirect(url_for("database.databases_home", tenant_name=tenant_name))
+        return _render_databases_with_form(tenant_name, tenant_cfg, request.form)
     if not display_name or not db_name or not admin_password:
         flash("显示名称、数据库名和管理员密码不能为空。", "error")
-        return redirect(url_for("database.databases_home", tenant_name=tenant_name))
+        return _render_databases_with_form(tenant_name, tenant_cfg, request.form)
     try:
         result = create_autonomous_database(
             tenant_cfg,
@@ -121,10 +156,12 @@ def databases_create(tenant_name: str):
             private_endpoint_label=private_endpoint_label,
         )
         suffix = " 免费层已固定为 1 核 / 20 GB。" if result["is_free_tier"] else ""
-        flash(f"数据库 {result['display_name']} 创建请求已提交。{suffix}", "success")
+        flash(f"数据库 {result['display_name']} 创建请求已提交。{suffix}创建完成后会发送通知。", "success")
+        spawn_provision_watcher(tenant_cfg, result["id"], result["display_name"], tenant_name)
+        return redirect(url_for("database.databases_home", tenant_name=tenant_name))
     except Exception as exc:
-        flash(f"创建自治数据库失败：{exc}", "error")
-    return redirect(url_for("database.databases_home", tenant_name=tenant_name))
+        flash(f"创建自治数据库失败：{friendly_error(exc)}", "error")
+        return _render_databases_with_form(tenant_name, tenant_cfg, request.form)
 
 
 @database_bp.route("/tenant/<tenant_name>/databases/<database_id>/wallet", methods=["POST"])
@@ -138,7 +175,7 @@ def databases_wallet(tenant_name: str, database_id: str):
         filename = f"adb-wallet-{database_id[-8:]}.zip"
         return send_file(BytesIO(payload), as_attachment=True, download_name=filename, mimetype="application/zip")
     except Exception as exc:
-        flash(f"下载 Wallet 失败：{exc}", "error")
+        flash(f"下载 Wallet 失败：{friendly_error(exc)}", "error")
         return redirect(url_for("database.databases_home", tenant_name=tenant_name, database_id=database_id))
 
 
@@ -151,7 +188,7 @@ def databases_start(tenant_name: str, database_id: str):
         start_autonomous_database(tenant_cfg, database_id)
         flash("启动请求已提交。", "success")
     except Exception as exc:
-        flash(f"启动自治数据库失败：{exc}", "error")
+        flash(f"启动自治数据库失败：{friendly_error(exc)}", "error")
     return redirect(url_for("database.databases_home", tenant_name=tenant_name, database_id=database_id))
 
 
@@ -164,7 +201,7 @@ def databases_stop(tenant_name: str, database_id: str):
         stop_autonomous_database(tenant_cfg, database_id)
         flash("停止请求已提交。", "success")
     except Exception as exc:
-        flash(f"停止自治数据库失败：{exc}", "error")
+        flash(f"停止自治数据库失败：{friendly_error(exc)}", "error")
     return redirect(url_for("database.databases_home", tenant_name=tenant_name, database_id=database_id))
 
 
@@ -177,7 +214,7 @@ def databases_backup(tenant_name: str, database_id: str):
         backup_id = create_autonomous_database_backup(tenant_cfg, database_id, request.form.get("display_name", ""))
         flash(f"手动备份请求已提交：{backup_id or '-'}", "success")
     except Exception as exc:
-        flash(f"创建手动备份失败：{exc}", "error")
+        flash(f"创建手动备份失败：{friendly_error(exc)}", "error")
     return redirect(url_for("database.databases_home", tenant_name=tenant_name, database_id=database_id))
 
 
@@ -187,7 +224,8 @@ def databases_delete(tenant_name: str, database_id: str):
     if tenant_cfg is None:
         return redirect(url_for("tenant.index"))
     confirm_name = request.form.get("confirm_name", "").strip().upper()
-    expected_name = request.form.get("expected_name", "").strip().upper()
+    # 名称基准必须来自服务端读到的资源本身；表单里同名的 expected_name 由用户提交，不能作为校验依据
+    expected_name = _server_side_display_name(tenant_cfg, database_id).upper()
     if not expected_name or confirm_name != expected_name:
         flash("删除前请输入正确的数据库名确认。", "error")
         return redirect(url_for("database.databases_home", tenant_name=tenant_name, database_id=database_id))
@@ -195,5 +233,5 @@ def databases_delete(tenant_name: str, database_id: str):
         delete_autonomous_database(tenant_cfg, database_id)
         flash(f"数据库 {expected_name} 删除请求已提交。", "success")
     except Exception as exc:
-        flash(f"删除自治数据库失败：{exc}", "error")
+        flash(f"删除自治数据库失败：{friendly_error(exc)}", "error")
     return redirect(url_for("database.databases_home", tenant_name=tenant_name))

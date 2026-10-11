@@ -11,38 +11,53 @@ import oci
 from db import connect
 from notify import notify
 from oci_helpers import get_compute_client, get_identity_client, get_network_client, list_all
-from settings import LAUNCH_PRESETS, LAUNCH_TASKS_PATH, RETRYABLE_KEYWORDS
+from settings import LAUNCH_PRESETS, RETRYABLE_KEYWORDS
 from storage import now_iso
+from compartment_scope import compartment_of
 
 LAUNCH_TASKS: dict[str, dict[str, Any]] = {}
 TASK_LOCK = threading.RLock()
 
 
 def load_launch_tasks() -> None:
-    loaded = load_launch_tasks_from_db()
-    if loaded:
+    """服务启动时恢复任务表，并把上次运行遗留的 queued/running 标记为 interrupted。
+
+    由 app 显式调用，不在 import 时执行——import 触发磁盘 IO 和状态改写会让
+    测试与工具脚本难以复用这个模块。
+    """
+    load_launch_tasks_from_db()
+    _import_legacy_json_tasks()
+
+
+def _import_legacy_json_tasks() -> None:
+    """旧版本任务存 launch_tasks.json；一次性导入 SQLite 后改名归档。"""
+    from settings import DATA_DIR
+
+    legacy_path = DATA_DIR / "launch_tasks.json"
+    if not legacy_path.exists():
         return
     try:
-        raw = json.loads(LAUNCH_TASKS_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return
-    if not isinstance(raw, dict):
-        return
-    with TASK_LOCK:
-        LAUNCH_TASKS.clear()
-        changed = False
-        for task_id, task in raw.items():
-            if not isinstance(task, dict):
+        data = json.loads(legacy_path.read_text(encoding="utf-8"))
+        tasks = data.get("tasks", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+        rows = []
+        for task in tasks:
+            task_id = str(task.get("id") or "")
+            if not task_id or task_id in LAUNCH_TASKS:
                 continue
-            task = dict(task)
             if task.get("status") in {"queued", "running"}:
                 task["status"] = "interrupted"
-                task["finished_at"] = task.get("finished_at") or now_iso()
-                task.setdefault("logs", []).append(f"[{datetime.now().strftime('%H:%M:%S')}] 服务重启，任务已标记为中断。")
-                changed = True
-            LAUNCH_TASKS[str(task_id)] = task
-    if changed:
-        save_launch_tasks()
+            task.setdefault("logs", [])
+            rows.append(task)
+        if rows:
+            with TASK_LOCK:
+                with connect() as conn:
+                    _upsert_tasks(conn, {task["id"]: task for task in rows})
+                for task in rows:
+                    LAUNCH_TASKS[task["id"]] = task
+        legacy_path.rename(legacy_path.with_name("launch_tasks.json.imported"))
+        print(f"[launch_manager] 已导入 {len(rows)} 条历史任务（launch_tasks.json → SQLite）", flush=True)
+    except Exception as exc:
+        print(f"[launch_manager] 导入 legacy launch_tasks.json 失败: {exc}", flush=True)
 
 
 def load_launch_tasks_from_db() -> bool:
@@ -75,37 +90,69 @@ def load_launch_tasks_from_db() -> bool:
     return True
 
 
+def _upsert_tasks(conn, payload: dict[str, dict[str, Any]]) -> None:
+    for task_id, task in payload.items():
+        conn.execute(
+            """
+            INSERT INTO launch_tasks (id, tenant_name, status, created_at, updated_at, task_json)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                tenant_name=excluded.tenant_name,
+                status=excluded.status,
+                created_at=excluded.created_at,
+                updated_at=excluded.updated_at,
+                task_json=excluded.task_json
+            """,
+            (
+                task_id,
+                task.get("tenant_name", "-"),
+                task.get("status", "-"),
+                task.get("created_at", ""),
+                task.get("updated_at", ""),
+                json.dumps(task, ensure_ascii=False, separators=(",", ":")),
+            ),
+        )
+
+
 def save_launch_tasks() -> None:
+    """把任务表整体写入 SQLite。
+
+    早期版本在写库失败时回退写 JSON，导致同一份数据有两个可能的来源、
+    读的时候又要按优先级猜。现在 JSON 回退已移除：写库失败就是失败，
+    宁可在页面上暴露，也不要留下两份会互相覆盖的真值。
+
+    整个流程（取快照 + 写库）都持 TASK_LOCK：TASK_LOCK 是 RLock，update_task /
+    append_task_log 持锁调用这里也不会死锁；锁内写库保证两个线程的落盘顺序
+    与内存修改顺序一致，否则快照乱序会让重启后恢复出旧状态。
+
+    高频路径（状态变更/追加日志）请用 save_launch_task，只写单行。
+    """
     with TASK_LOCK:
         payload = {task_id: task for task_id, task in LAUNCH_TASKS.items()}
-    try:
-        with connect() as conn:
-            for task_id, task in payload.items():
-                conn.execute(
-                    """
-                    INSERT INTO launch_tasks (id, tenant_name, status, created_at, updated_at, task_json)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET
-                        tenant_name=excluded.tenant_name,
-                        status=excluded.status,
-                        created_at=excluded.created_at,
-                        updated_at=excluded.updated_at,
-                        task_json=excluded.task_json
-                    """,
-                    (
-                        task_id,
-                        task.get("tenant_name", "-"),
-                        task.get("status", "-"),
-                        task.get("created_at", ""),
-                        task.get("updated_at", ""),
-                        json.dumps(task, ensure_ascii=False, separators=(",", ":")),
-                    ),
-                )
-    except Exception:
         try:
-            LAUNCH_TASKS_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        except OSError:
+            with connect() as conn:
+                _upsert_tasks(conn, payload)
+        except Exception as exc:
+            # 不静默：任务日志是排查抢实例失败的唯一线索，丢了必须让人看见
+            print(f"[launch_manager] 保存任务失败: {exc}", flush=True)
+
+
+def save_launch_task(task_id: str) -> None:
+    """只写单个任务行。
+
+    每次 append 日志都全表 upsert 的话，任务一多、日志一长，单次写事务会
+    显著变长——这是 SQLite "database is locked" 的集中来源。
+    """
+    with TASK_LOCK:
+        task = LAUNCH_TASKS.get(task_id)
+        if task is None:
             return
+        payload = {task_id: task}
+        try:
+            with connect() as conn:
+                _upsert_tasks(conn, payload)
+        except Exception as exc:
+            print(f"[launch_manager] 保存任务失败: {exc}", flush=True)
 
 
 def is_retryable_launch_error(exc: Exception) -> bool:
@@ -126,7 +173,7 @@ def update_task(task_id: str, **kwargs: Any) -> None:
         if task is not None:
             task.update(kwargs)
             task["updated_at"] = now_iso()
-    save_launch_tasks()
+    save_launch_task(task_id)
 
 
 def clear_finished_tasks(tenant_name: str) -> int:
@@ -156,8 +203,10 @@ def append_task_log(task_id: str, message: str) -> None:
         if task is None:
             return
         task.setdefault("logs", []).append(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
+        # 日志永不截断的话，9999 次尝试的任务能积累几万条，每次追加都是全量 JSON 重写
+        task["logs"] = task["logs"][-200:]
         task["updated_at"] = now_iso()
-    save_launch_tasks()
+    save_launch_task(task_id)
 
 
 def filtered_tasks(tenant_name: str) -> list[dict[str, Any]]:
@@ -189,6 +238,28 @@ def discover_candidate_images(compute_client: oci.core.ComputeClient, compartmen
 
 
 def launch_context(tenant_cfg: dict[str, Any]) -> dict[str, Any]:
+    """创建实例所需的可用域/子网/镜像清单。
+
+    镜像列表（list_images）可能几百条，是实例页最慢的部分之一，挂 TTL 缓存。
+    """
+    from cache import cached
+
+    tenant_name = tenant_cfg.get("_tenant_name") or tenant_cfg.get("tenant_id", "-")
+    try:
+        from flask import g
+
+        bypass = bool(getattr(g, "cache_bypass", False))
+    except RuntimeError:
+        bypass = False
+    return cached(
+        ("launch_context", tenant_name, compartment_of(tenant_cfg)),
+        _launch_context_uncached,
+        bypass=bypass,
+        args=(tenant_cfg,),
+    )
+
+
+def _launch_context_uncached(tenant_cfg: dict[str, Any]) -> dict[str, Any]:
     identity_client = get_identity_client(tenant_cfg)
     network_client = get_network_client(tenant_cfg)
     compute_client = get_compute_client(tenant_cfg)
@@ -200,13 +271,13 @@ def launch_context(tenant_cfg: dict[str, Any]) -> dict[str, Any]:
             "cidr": subnet.cidr_block,
             "availability_domain": subnet.availability_domain or "Regional",
         }
-        for subnet in list_all(network_client.list_subnets, compartment_id=tenant_cfg["tenant_id"])
+        for subnet in list_all(network_client.list_subnets, compartment_id=compartment_of(tenant_cfg))
     ]
     subnets.sort(key=lambda item: (item["name"] or "", item["availability_domain"]))
     return {
         "availability_domains": availability_domains,
         "subnets": subnets,
-        "images": discover_candidate_images(compute_client, tenant_cfg["tenant_id"]),
+        "images": discover_candidate_images(compute_client, compartment_of(tenant_cfg)),
     }
 
 
@@ -230,7 +301,7 @@ def build_launch_details(tenant_cfg: dict[str, Any], form: dict[str, Any]) -> oc
 
     details = oci.core.models.LaunchInstanceDetails(
         availability_domain=form["availability_domain"],
-        compartment_id=tenant_cfg["tenant_id"],
+        compartment_id=compartment_of(tenant_cfg),
         display_name=display_name,
         shape=shape,
         source_details=source_details,
@@ -261,6 +332,42 @@ def bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
 
 
 def launch_worker(task_id: str, tenant_cfg: dict[str, Any], form: dict[str, Any]) -> None:
+    """线程入口：任何未捕获异常都不能让任务卡在 running。"""
+    try:
+        _launch_worker_impl(task_id, tenant_cfg, form)
+    except Exception as exc:
+        update_task(task_id, status="failed", last_error=str(exc), finished_at=now_iso())
+        append_task_log(task_id, f"任务异常终止：{exc}")
+        notify("OCI 创建任务失败", f"{task_id}: {exc}", {"tenant_name": tenant_cfg.get("_tenant_name")})
+
+
+def _fetch_ssh_hint(tenant_cfg: dict[str, Any], instance_id: str, attempts: int = 4) -> str:
+    """抢机成功后等公网 IP 分配，通知里直接给 SSH 命令（最多等 ~40s）。
+
+    任务此时已标记 success：这里任何异常都只降级为提示文案，
+    绝不能抛回给 worker 把成功翻转成失败、甚至触发重试重复开机。
+    """
+    try:
+        from compartment_scope import compartment_of
+        from oci_helpers import primary_vnic
+
+        network_client = get_network_client(tenant_cfg)
+        compartment_id = compartment_of(tenant_cfg)
+        for _ in range(attempts):
+            try:
+                vnic = primary_vnic(network_client, get_compute_client(tenant_cfg), compartment_id, instance_id)
+                ip = getattr(vnic, "public_ip", None) if vnic else None
+                if ip:
+                    return f"SSH: ssh opc@{ip}"
+            except Exception:
+                pass
+            time.sleep(10)
+    except Exception:
+        pass
+    return "公网 IP 尚未分配，稍后到实例总览页查看。"
+
+
+def _launch_worker_impl(task_id: str, tenant_cfg: dict[str, Any], form: dict[str, Any]) -> None:
     compute_client = get_compute_client(tenant_cfg)
     attempts = bounded_int(form.get("attempts"), 60, 1, 9999)
     interval_seconds = bounded_int(form.get("interval_seconds"), 20, 5, 300)
@@ -279,7 +386,12 @@ def launch_worker(task_id: str, tenant_cfg: dict[str, Any], form: dict[str, Any]
             instance = compute_client.launch_instance(build_launch_details(tenant_cfg, form)).data
             update_task(task_id, status="success", instance_id=instance.id, instance_name=instance.display_name, finished_at=now_iso())
             append_task_log(task_id, f"创建成功：{instance.display_name} / {instance.id}")
-            notify("OCI 创建实例成功", f"{task_id}: {instance.display_name}", {"tenant_name": tenant_cfg.get("_tenant_name"), "instance_id": instance.id})
+            ssh_hint = _fetch_ssh_hint(tenant_cfg, instance.id)
+            notify(
+                "OCI 创建实例成功",
+                f"{task_id}: {instance.display_name}\n{ssh_hint}",
+                {"tenant_name": tenant_cfg.get("_tenant_name"), "instance_id": instance.id},
+            )
             return
         except Exception as exc:
             append_task_log(task_id, f"尝试失败：{exc}")
@@ -289,9 +401,3 @@ def launch_worker(task_id: str, tenant_cfg: dict[str, Any], form: dict[str, Any]
                 notify("OCI 创建实例失败", f"{task_id}: {exc}", {"tenant_name": tenant_cfg.get("_tenant_name")})
                 return
             time.sleep(interval_seconds)
-    update_task(task_id, status="failed", finished_at=now_iso())
-    append_task_log(task_id, "任务结束，达到最大重试次数。")
-    notify("OCI 创建实例失败", f"{task_id}: 达到最大重试次数。", {"tenant_name": tenant_cfg.get("_tenant_name")})
-
-
-load_launch_tasks()

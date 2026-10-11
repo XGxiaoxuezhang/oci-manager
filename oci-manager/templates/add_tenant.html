@@ -1,25 +1,24 @@
 {% extends "base.html" %}
 
 {% block title %}添加租户 | OCI 管理器{% endblock %}
+{% block page_title %}添加租户{% endblock %}
+{% block page_desc %}填写 OCI API 凭据，私钥会保存到当前项目的租户目录。{% endblock %}
+{% block page_actions %}
+<a class="btn btn-secondary" href="/tenants">返回租户列表</a>
+{% endblock %}
+
 {% block content %}
-<section class="section-head">
-  <div>
-    <div class="eyebrow">Tenant Onboarding</div>
-    <h2>添加租户</h2>
-    <div class="section-sub">填写 OCI API 凭据后，系统会把私钥保存到当前项目的租户目录。</div>
-  </div>
-</section>
 
 <section class="panel" style="max-width:760px;">
   <form method="post" enctype="multipart/form-data">
     <div class="grid grid-2">
-      <div class="field"><label>租户名称</label><input name="tenant_name" placeholder="例如 chinagpt" required></div>
-      <div class="field"><label>区域</label><select name="region" required>{% for value, label in regions %}<option value="{{ value }}">{{ label }} ({{ value }})</option>{% endfor %}</select></div>
+      <div class="field"><label for="add-tenant-name">租户名称</label><input id="add-tenant-name" name="tenant_name" value="{{ form.get('tenant_name', '') }}" placeholder="例如 tenant-01" required></div>
+      <div class="field"><label for="add-tenant-region">区域</label><select id="add-tenant-region" name="region" required>{% for value, label in regions %}<option value="{{ value }}" {{ 'selected' if form.get('region') == value else '' }}>{{ label }} ({{ value }})</option>{% endfor %}</select></div>
     </div>
-    <div class="field"><label>Tenancy OCID</label><input name="tenant_id" required></div>
-    <div class="field"><label>User OCID</label><input name="user_id" required></div>
-    <div class="field"><label>API Fingerprint</label><input name="fingerprint" required></div>
-    <div class="field"><label>私钥文件（.pem）</label><input name="key_file" type="file" accept=".pem" required></div>
+    <div class="field"><label for="add-tenant-id">Tenancy OCID</label><input id="add-tenant-id" name="tenant_id" value="{{ form.get('tenant_id', '') }}" required></div>
+    <div class="field"><label for="add-tenant-user">User OCID</label><input id="add-tenant-user" name="user_id" value="{{ form.get('user_id', '') }}" required></div>
+    <div class="field"><label for="add-tenant-fingerprint">API Fingerprint</label><input id="add-tenant-fingerprint" name="fingerprint" value="{{ form.get('fingerprint', '') }}" required></div>
+    <div class="field"><label for="add-tenant-key">私钥文件（.pem）</label><input id="add-tenant-key" name="key_file" type="file" accept=".pem" required></div>
     <div class="actions">
       <button class="btn btn-primary" type="submit">保存租户</button>
       <a class="btn btn-ghost" href="/">取消</a>

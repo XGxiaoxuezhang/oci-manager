@@ -7,13 +7,33 @@ from db import connect
 from settings import AUDIT_LOG_PATH
 from storage import now_iso
 
-SENSITIVE_KEYS = {"password", "admin_password", "wallet_password", "ssh_public_key", "key_file"}
+SENSITIVE_KEYS = {
+    "password",
+    "admin_password",
+    "wallet_password",
+    "ssh_public_key",
+    "key_file",
+    "fingerprint",
+    "api_key",
+    "private_key",
+    "password_hash",
+    "secret",
+    "secret_key",
+    "token",
+}
 
 
 def _safe_details(details: dict[str, Any]) -> dict[str, Any]:
     safe: dict[str, Any] = {}
     for key, value in details.items():
-        if key in SENSITIVE_KEYS or key.endswith("_password"):
+        lowered = key.lower()
+        if (
+            lowered in SENSITIVE_KEYS
+            or lowered.endswith("_password")
+            or lowered.endswith("_token")
+            or lowered.endswith("_secret")
+            or lowered.endswith("_key")
+        ):
             safe[key] = "[redacted]"
         else:
             safe[key] = value

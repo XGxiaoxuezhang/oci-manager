@@ -30,8 +30,11 @@ def backup_restore():
         flash("请选择备份 ZIP 文件。", "error")
         return redirect(url_for("backup.backup_home"))
     try:
-        restored = restore_backup_zip(backup_file.read())
-        flash(f"已恢复 {len(restored)} 个文件。请重启服务。", "success")
+        restored, skipped = restore_backup_zip(backup_file.read())
+        message = f"已恢复 {len(restored)} 个文件。请重启服务。"
+        if skipped:
+            message += f" 已跳过敏感配置文件（{', '.join(sorted(set(skipped)))}），如需恢复请手动替换。"
+        flash(message, "success")
     except Exception as exc:
         flash(f"恢复失败：{exc}", "error")
     return redirect(url_for("backup.backup_home"))

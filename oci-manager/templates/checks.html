@@ -1,13 +1,12 @@
 {% extends "base.html" %}
 
 {% block title %}自动巡检 | OCI 管理器{% endblock %}
-{% block hero_title %}自动巡检{% endblock %}
-{% block hero_text %}租户 API 连通性检查。{% endblock %}
+{% block page_title %}自动巡检{% endblock %}
+{% block page_desc %}租户 API 连通性检查。{% endblock %}
 
 {% block content %}
 <section class="section-head">
   <div>
-    <div class="eyebrow">Checks</div>
     <h2>租户 API 巡检</h2>
     <div class="section-sub">最近巡检：{{ results.time if results else '-' }}</div>
   </div>

@@ -1,24 +1,17 @@
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import os
+import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import oci
 
+from compartment_scope import compartment_of
 from settings import OCI_CONNECT_TIMEOUT, OCI_READ_TIMEOUT, TENANT_DIR, clear_proxy_enabled, format_region
 from storage import fmt_dt, load_tenants, save_tenants
-
-
-def clear_broken_proxy_env() -> None:
-    if not clear_proxy_enabled():
-        return
-    for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
-        os.environ.pop(key, None)
-
-
-clear_broken_proxy_env()
 
 
 def _resolve_key_path(tenant_cfg: dict[str, Any]) -> str:
@@ -49,8 +42,114 @@ def client_kwargs() -> dict[str, Any]:
     return {"timeout": (OCI_CONNECT_TIMEOUT, OCI_READ_TIMEOUT)}
 
 
+# client 实例缓存：每次新建 client，SDK 都要读盘解析 PEM 私钥并建连接池，
+# 实例列表页一屏就是几十次。键带私钥文件 mtime_ns，轮换密钥（重写文件）后自动换新。
+_CLIENT_CACHE: dict[tuple, Any] = {}
+_CLIENT_CACHE_LOCK = threading.Lock()
+
+
+def _client_cache_key(tenant_cfg: dict[str, Any], kind: str) -> tuple | None:
+    key_path = _resolve_key_path(tenant_cfg)
+    if not key_path:
+        return None
+    try:
+        mtime_ns = Path(key_path).stat().st_mtime_ns
+    except OSError:
+        return None
+    return (
+        kind,
+        tenant_cfg.get("tenant_id", ""),
+        tenant_cfg.get("user_id", ""),
+        tenant_cfg.get("fingerprint", ""),
+        tenant_cfg.get("region", ""),
+        key_path,
+        mtime_ns,
+    )
+
+
+_CLIENT_CACHE_MAX = 128
+
+
+def purge_client_cache(tenant_cfg: dict[str, Any]) -> int:
+    """删除租户后清理其全部缓存 client（键的第 2 段是 tenant_id）。"""
+    tenant_id = tenant_cfg.get("tenant_id", "")
+    with _CLIENT_CACHE_LOCK:
+        stale = [k for k in _CLIENT_CACHE if k[1] == tenant_id]
+        for key in stale:
+            _CLIENT_CACHE.pop(key, None)
+        return len(stale)
+
+
+def get_cached_client(kind: str, tenant_cfg: dict[str, Any], factory: Callable[[], Any]) -> Any:
+    """按（租户身份 + 私钥文件指纹）缓存 client 实例。
+
+    factory 在锁外执行（读 PEM + validate_config 较慢，锁内串行会拖慢首屏），
+    并发首次构建可能重复建一个 client，后写者胜出，无害。
+    拿不到缓存键（私钥不存在等）时退化为直接构建，行为与旧版一致。
+    """
+    key = _client_cache_key(tenant_cfg, kind)
+    if key is None:
+        return factory()
+    with _CLIENT_CACHE_LOCK:
+        client = _CLIENT_CACHE.get(key)
+    if client is not None:
+        return client
+    client = factory()
+    with _CLIENT_CACHE_LOCK:
+        if len(_CLIENT_CACHE) >= _CLIENT_CACHE_MAX:
+            _CLIENT_CACHE.clear()  # 键含私钥 mtime，轮换会累积旧条目；超限整体清空最简单
+        return _CLIENT_CACHE.setdefault(key, client)
+
+
+def friendly_error(exc: BaseException) -> str:
+    """把 OCI ServiceError 映射成可读中文短句；非 OCI 异常原样返回。
+
+    之前所有路由直接 str(exc)，配额不足/名称冲突/权限问题在用户眼里是同一条
+    带 OCID 的英文长串。"""
+    try:
+        from oci.exceptions import ServiceError
+    except Exception:  # pragma: no cover
+        return str(exc)
+    if not isinstance(exc, ServiceError):
+        return str(exc)
+    mapping = {
+        400: "请求参数不正确",
+        401: "认证失败，请检查 API Key、指纹与用户 OCID",
+        403: "权限不足（IAM 策略拒绝该操作）",
+        404: "资源不存在或已被删除",
+        409: "资源状态冲突或名称已存在",
+        429: "请求过于频繁（被限流），请稍后重试",
+    }
+    status = getattr(exc, "status", None)
+    base = mapping.get(status, f"OCI 服务错误 (HTTP {status})")
+    code = getattr(exc, "code", "") or ""
+    message = (getattr(exc, "message", "") or "").strip()
+    detail = f" [{code}]" if code else ""
+    extra = f"：{message[:160]}" if message else ""
+    return f"{base}{detail}{extra}"
+
+
 def list_all(func: Any, *args: Any, **kwargs: Any) -> list[Any]:
     return oci.pagination.list_call_get_all_results(func, *args, **kwargs).data
+
+
+def migrate_tenant_key_paths() -> int:
+    """启动时一次性迁移：把失效的 key_path 修正到 fallback 路径。
+
+    原先这段逻辑写在 find_tenant_config 里——一个"查询"函数带写副作用，
+    每个请求都可能触发，并发下会交错写盘。现在改成启动时集中跑一次，
+    读函数保持纯读。返回修正的租户数量。
+    """
+    tenants = load_tenants()
+    changed = 0
+    for tenant_name, cfg in tenants.items():
+        resolved = _resolve_key_path({**cfg, "_tenant_name": tenant_name})
+        if resolved and resolved != cfg.get("key_path"):
+            tenants[tenant_name]["key_path"] = resolved
+            changed += 1
+    if changed:
+        save_tenants(tenants)
+    return changed
 
 
 def find_tenant_config(tenant_name: str) -> dict[str, Any] | None:
@@ -62,26 +161,25 @@ def find_tenant_config(tenant_name: str) -> dict[str, Any] | None:
     tenant_cfg["_tenant_name"] = tenant_name
     resolved_key_path = _resolve_key_path(tenant_cfg)
     if resolved_key_path and resolved_key_path != tenant_cfg.get("key_path"):
-        tenants[tenant_name]["key_path"] = resolved_key_path
-        save_tenants(tenants)
+        # 只做内存修正，不回写磁盘；持久化迁移由启动时 migrate_tenant_key_paths() 统一负责
         tenant_cfg["key_path"] = resolved_key_path
     return tenant_cfg
 
 
 def get_identity_client(tenant_cfg: dict[str, Any]) -> oci.identity.IdentityClient:
-    return oci.identity.IdentityClient(build_config(tenant_cfg), **client_kwargs())
+    return get_cached_client("identity", tenant_cfg, lambda: oci.identity.IdentityClient(build_config(tenant_cfg), **client_kwargs()))
 
 
 def get_compute_client(tenant_cfg: dict[str, Any]) -> oci.core.ComputeClient:
-    return oci.core.ComputeClient(build_config(tenant_cfg), **client_kwargs())
+    return get_cached_client("compute", tenant_cfg, lambda: oci.core.ComputeClient(build_config(tenant_cfg), **client_kwargs()))
 
 
 def get_network_client(tenant_cfg: dict[str, Any]) -> oci.core.VirtualNetworkClient:
-    return oci.core.VirtualNetworkClient(build_config(tenant_cfg), **client_kwargs())
+    return get_cached_client("network", tenant_cfg, lambda: oci.core.VirtualNetworkClient(build_config(tenant_cfg), **client_kwargs()))
 
 
 def get_block_client(tenant_cfg: dict[str, Any]) -> oci.core.BlockstorageClient:
-    return oci.core.BlockstorageClient(build_config(tenant_cfg), **client_kwargs())
+    return get_cached_client("block", tenant_cfg, lambda: oci.core.BlockstorageClient(build_config(tenant_cfg), **client_kwargs()))
 
 
 def validate_cidr(value: str) -> None:
@@ -153,6 +251,38 @@ def summarize_rule(direction: str, index: int, rule: Any) -> dict[str, Any]:
     }
 
 
+def fingerprint_from_private_pem(private_pem: bytes) -> str | None:
+    """从 PEM 私钥字节反算 OCI API key 的 fingerprint。"""
+    try:
+        from cryptography.hazmat.primitives import serialization
+    except Exception:
+        return None
+    try:
+        key = serialization.load_pem_private_key(private_pem, password=None)
+    except Exception:
+        return None
+    der = key.public_key().public_bytes(
+        serialization.Encoding.DER,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    digest = hashlib.md5(der).hexdigest()
+    return ":".join(digest[i : i + 2] for i in range(0, len(digest), 2))
+
+
+def calc_fingerprint_from_key(key_path: str) -> str | None:
+    """从 PEM 私钥文件反算 OCI API key 的 fingerprint。
+
+    注意：当前 oci-python-sdk（2.x）的 fingerprint 是 **MD5** over
+    SubjectPublicKeyInfo DER（16 字节，即 32 位 hex、16 组冒号分隔），
+    而不是标准的 SHA-1。以 `oci.config.PATTERNS["fingerprint"]` 的正则
+    `^([0-9a-f]{2}:){15}[0-9a-f]{2}$` 为准。
+    """
+    path = Path(key_path)
+    if not path.is_file():
+        return None
+    return fingerprint_from_private_pem(path.read_bytes())
+
+
 def build_dashboard_cards(tenants: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     return [
         {
@@ -207,7 +337,7 @@ def instance_boot_volume(tenant_cfg: dict[str, Any], instance: Any) -> tuple[Any
     attachments = list_all(
         compute_client.list_boot_volume_attachments,
         instance.availability_domain,
-        tenant_cfg["tenant_id"],
+        compartment_of(tenant_cfg),
         instance_id=instance.id,
     )
     if not attachments:
@@ -221,7 +351,7 @@ def instance_console_connections(tenant_cfg: dict[str, Any], instance_id: str) -
     compute_client = get_compute_client(tenant_cfg)
     connections = list_all(
         compute_client.list_instance_console_connections,
-        compartment_id=tenant_cfg["tenant_id"],
+        compartment_id=compartment_of(tenant_cfg),
         instance_id=instance_id,
     )
     rows = []

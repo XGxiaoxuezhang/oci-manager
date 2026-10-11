@@ -8,9 +8,14 @@ from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 from settings import BASE_DIR, DATA_DIR, SQLITE_PATH
 
 SKIP_NAMES = {"backup.zip", "app.db", "app.db-wal", "app.db-shm"}
-SOURCE_DIR_RUNTIME_NAMES = {"auth.yaml", "tenants.yaml", "audit.log.jsonl", "launch_tasks.json", "checks.json", "settings.yaml"}
+SOURCE_DIR_RUNTIME_NAMES = {"auth.yaml", "tenants.yaml", "audit.log.jsonl", "checks.json", "settings.yaml"}
+# 恢复时一律拒绝的凭据/关键配置：ZIP 里塞入伪造的 auth.yaml 可直接改掉管理员口令，
+# 伪造 .secret_key 可伪造任意会话 cookie，伪造 tenants.yaml 可把私钥路径指到任意位置。
+# 这些文件要恢复只能手动替换，不进自动恢复流程。
+RESTORE_PROTECTED_NAMES = {"auth.yaml", ".secret_key", "tenants.yaml", "settings.yaml"}
 MAX_RESTORE_FILE_SIZE = 100 * 1024 * 1024
 MAX_RESTORE_TOTAL_SIZE = 512 * 1024 * 1024
+_RESTORE_CHUNK = 64 * 1024
 
 
 def sqlite_backup_bytes() -> bytes | None:
@@ -44,14 +49,20 @@ def create_backup_zip() -> bytes:
 def should_include_backup_path(path: Path) -> bool:
     if not path.is_file() or path.name in SKIP_NAMES:
         return False
+    relative = path.relative_to(DATA_DIR)
+    if relative.parts[0] in {"logs", "backups"}:
+        # logs/ 是运行日志；backups/ 是自动备份产物（否则今天的 ZIP 会打进明天的）
+        return False
     if DATA_DIR != BASE_DIR:
         return True
     relative = path.relative_to(DATA_DIR)
-    return relative.parts[0] == "tenants" or path.name in SOURCE_DIR_RUNTIME_NAMES
+    # console/ 是救机中心的 SSH 私钥，恢复到新机时缺了它全部控制台连接失效
+    return relative.parts[0] in {"tenants", "console"} or path.name in SOURCE_DIR_RUNTIME_NAMES
 
 
-def restore_backup_zip(payload: bytes) -> list[str]:
+def restore_backup_zip(payload: bytes) -> tuple[list[str], list[str]]:
     restored: list[str] = []
+    skipped_protected: list[str] = []
     total_size = 0
     try:
         archive = ZipFile(BytesIO(payload), "r")
@@ -61,26 +72,56 @@ def restore_backup_zip(payload: bytes) -> list[str]:
         for member in archive.infolist():
             if Path(member.filename).name in {"app.db-wal", "app.db-shm"}:
                 continue
+            # 先用 ZipInfo 里的声明大小做一次快速预检，真正的防线是下面的解压计数
             if member.file_size > MAX_RESTORE_FILE_SIZE:
                 raise ValueError(f"文件过大，已拒绝恢复: {member.filename}")
-            total_size += member.file_size
-            if total_size > MAX_RESTORE_TOTAL_SIZE:
-                raise ValueError("备份包总大小超过限制。")
             target = (DATA_DIR / member.filename).resolve()
             try:
                 target.relative_to(DATA_DIR)
             except ValueError:
+                raise ValueError(f"备份含越界路径，已中止恢复: {member.filename}") from None
+            # 按 resolve 后的最终落点拦截，防止 "tenants/../../auth.yaml" 这类拼写绕过文件名检查
+            if target.name in RESTORE_PROTECTED_NAMES and target.parent == DATA_DIR:
+                skipped_protected.append(member.filename)
                 continue
             if member.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
+            written = 0
+            # 流式解压：zip 元数据里的大小不可信，必须按真实写出的字节计数，
+            # 否则高压缩比的包（zip bomb）能一次性撑爆内存和磁盘。
             with archive.open(member) as src, target.open("wb") as dst:
-                dst.write(src.read())
+                while True:
+                    chunk = src.read(_RESTORE_CHUNK)
+                    if not chunk:
+                        break
+                    written += len(chunk)
+                    total_size += len(chunk)
+                    if written > MAX_RESTORE_FILE_SIZE or total_size > MAX_RESTORE_TOTAL_SIZE:
+                        dst.close()
+                        target.unlink(missing_ok=True)
+                        raise ValueError("备份解压后超过大小限制，已中止恢复。")
+                    dst.write(chunk)
             restored.append(member.filename)
-    return restored
+    return restored, skipped_protected
 
 
 def backup_file_count() -> int:
     total = 1 if SQLITE_PATH.exists() else 0
     return total + sum(1 for path in Path(DATA_DIR).rglob("*") if should_include_backup_path(path))
+
+
+def run_scheduled_backup(keep: int = 7) -> dict[str, Any]:
+    """每日自动备份：写入 DATA_DIR/backups/，保留最近 keep 份（含当天）。"""
+    payload = create_backup_zip()
+    backup_dir = DATA_DIR / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    target = backup_dir / f"auto-{now_iso()[:10]}.zip"
+    tmp = target.with_suffix(".zip.tmp")
+    tmp.write_bytes(payload)
+    tmp.replace(target)  # 原子落盘，中断不留半截 ZIP
+    zips = sorted(backup_dir.glob("auto-*.zip"))
+    for old in zips[:-keep] if keep else []:
+        old.unlink(missing_ok=True)
+    return {"path": str(target), "size": len(payload), "kept": min(len(zips), keep)}

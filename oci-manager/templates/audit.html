@@ -1,18 +1,13 @@
 {% extends "base.html" %}
 
 {% block title %}操作日志 | OCI 管理器{% endblock %}
-{% block hero_title %}操作日志{% endblock %}
-{% block hero_text %}本地变更操作记录。{% endblock %}
+{% block page_title %}操作日志{% endblock %}
+{% block page_desc %}本地变更操作记录，不含密码、私钥或 SSH 公钥内容。最近 200 条。{% endblock %}
+{% block page_actions %}
+<a class="btn btn-secondary" href="/audit/export">导出 CSV</a>
+{% endblock %}
 
 {% block content %}
-<section class="section-head">
-  <div>
-    <div class="eyebrow">Audit</div>
-    <h2>最近操作</h2>
-    <div class="section-sub">不记录密码、私钥或 SSH 公钥内容。</div>
-  </div>
-</section>
-
 <section class="table-wrap">
   <table>
     <thead>
@@ -28,15 +23,15 @@
     <tbody>
       {% for event in events %}
       <tr>
-        <td>{{ event.time }}</td>
+        <td class="nowrap">{{ event.time_text }}</td>
         <td>{{ event.user }}</td>
         <td>{{ event.tenant_name }}</td>
-        <td>{{ event.action }}</td>
+        <td title="{{ event.action }}">{{ event.action_label }}</td>
         <td><span class="badge badge-mid">{{ event.status }}</span></td>
         <td>{{ event.details.path }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="6" class="empty">还没有操作记录。</td></tr>
+      <tr><td colspan="6"><div class="empty">还没有操作记录。</div></td></tr>
       {% endfor %}
     </tbody>
   </table>

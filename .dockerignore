@@ -20,3 +20,7 @@ oci-manager/app.db
 oci-manager/app.db-*
 oci-manager/tenants/*
 oci-manager/console/*
+oci-manager/.secret_key
+oci-manager/tests/
+6.zip
+.workbuddy

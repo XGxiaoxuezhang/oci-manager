@@ -1,15 +1,13 @@
 {% extends "base.html" %}
 
 {% block title %}安全规则 | OCI 管理器{% endblock %}
+{% block page_title %}{{ security_list.name }}{% endblock %}
+{% block page_desc %}租户：{{ tenant_name }}{% endblock %}
+{% block page_actions %}
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/security-lists">返回列表</a>
+{% endblock %}
+
 {% block content %}
-<section class="section-head">
-  <div>
-    <div class="eyebrow">Security Rules</div>
-    <h2>{{ security_list.name }}</h2>
-    <div class="section-sub">租户：{{ tenant_name }}</div>
-  </div>
-  <a class="btn btn-ghost" href="/tenant/{{ tenant_name }}/security-lists">返回</a>
-</section>
 
 {% if load_error %}
 <div class="flash error">安全规则读取失败：{{ load_error }}</div>
@@ -40,7 +38,8 @@
           <td>{{ rule.peer }}</td>
           <td>{{ rule.ports }}</td>
           <td>{{ rule.description or '-' }}</td>
-          <td><form class="inline" method="post" action="/tenant/{{ tenant_name }}/security-list/{{ security_list.id }}/delete-rule/ingress/{{ rule.index }}" onsubmit="return confirm('确定删除这条规则吗？');"><button class="btn btn-danger" type="submit">删除</button></form></td>
+          <td><form class="inline" method="post" action="/tenant/{{ tenant_name }}/security-list/{{ security_list.id }}/delete-rule/ingress/{{ rule.index }}" data-confirm="确定删除这条规则吗？">
+          <input type="hidden" name="rule_sig" value="{{ rule.protocol }}|{{ rule.peer }}|{{ rule.ports }}|{{ rule.description or '' }}"><button class="btn btn-danger" type="submit">删除</button></form></td>
         </tr>
         {% else %}
         <tr><td colspan="5"><div class="empty">没有入站规则。</div></td></tr>
@@ -62,7 +61,8 @@
           <td>{{ rule.peer }}</td>
           <td>{{ rule.ports }}</td>
           <td>{{ rule.description or '-' }}</td>
-          <td><form class="inline" method="post" action="/tenant/{{ tenant_name }}/security-list/{{ security_list.id }}/delete-rule/egress/{{ rule.index }}" onsubmit="return confirm('确定删除这条规则吗？');"><button class="btn btn-danger" type="submit">删除</button></form></td>
+          <td><form class="inline" method="post" action="/tenant/{{ tenant_name }}/security-list/{{ security_list.id }}/delete-rule/egress/{{ rule.index }}" data-confirm="确定删除这条规则吗？">
+          <input type="hidden" name="rule_sig" value="{{ rule.protocol }}|{{ rule.peer }}|{{ rule.ports }}|{{ rule.description or '' }}"><button class="btn btn-danger" type="submit">删除</button></form></td>
         </tr>
         {% else %}
         <tr><td colspan="5"><div class="empty">没有出站规则。</div></td></tr>

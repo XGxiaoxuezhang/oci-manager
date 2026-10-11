@@ -14,7 +14,6 @@ AUTH_PATH = DATA_DIR / "auth.yaml"
 TENANT_DIR = DATA_DIR / "tenants"
 CONSOLE_KEY_DIR = DATA_DIR / "console"
 AUDIT_LOG_PATH = DATA_DIR / "audit.log.jsonl"
-LAUNCH_TASKS_PATH = DATA_DIR / "launch_tasks.json"
 CHECKS_PATH = DATA_DIR / "checks.json"
 SQLITE_PATH = DATA_DIR / "app.db"
 TENANT_DIR.mkdir(parents=True, exist_ok=True)
@@ -78,6 +77,14 @@ INSTANCE_ACTIONS = {
     "reset": "RESET",
 }
 
+INSTANCE_ACTION_LABELS = {
+    "start": "启动",
+    "stop": "强制停止",
+    "softstop": "软停",
+    "softreset": "软重启",
+    "reset": "强制重启",
+}
+
 LAUNCH_PRESETS: dict[str, dict[str, Any]] = {
     "amd1c1g": {
         "label": "AMD 1C1G",
@@ -95,20 +102,16 @@ LAUNCH_PRESETS: dict[str, dict[str, Any]] = {
         "boot_volume_gbs": 50,
         "description": "A1 Flex 2C12G。",
     },
-    "arm4c24g": {
-        "label": "ARM 4C24G",
-        "shape": "VM.Standard.A1.Flex",
-        "ocpus": 4,
-        "memory_gbs": 24,
-        "boot_volume_gbs": 50,
-        "description": "A1 Flex 4C24G。",
-    },
+    # 4C24G 预设已移除：2026 年起 A1 免费额度为 2 OCPU / 12 GB，
+    # 4C24G 创建即超出免费额度并开始计费。需要更大规格请用自定义形状并自担费用。
 }
 
+# 注意：不能放裸的 "capacity"——它会把 "boot volume ... capacity" 之类
+# 400 客户端错误也当容量错误重试满 60 次（永远不可能成功），且匹配不到复数
+# "capacities"。OCI 容量不足的标准文案就是 500 + "Out of host capacity"。
 RETRYABLE_KEYWORDS = [
     "out of host capacity",
     "outofhostcapacity",
-    "capacity",
     "too many requests",
     "rate limit",
     "temporarily unavailable",
@@ -125,9 +128,39 @@ def env_int(name: str, default: int) -> int:
 OCI_CONNECT_TIMEOUT = env_int("OCI_MANAGER_OCI_CONNECT_TIMEOUT", 8)
 OCI_READ_TIMEOUT = env_int("OCI_MANAGER_OCI_READ_TIMEOUT", 30)
 
+# 单请求上传体积上限，防止对象上传无节制地把内存和带宽吃满。
+MAX_UPLOAD_MB = max(1, env_int("OCI_MANAGER_MAX_UPLOAD_MB", 100))
+MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+
+# 下载同样要设上限：对象内容会被整体读进内存再交给响应，
+# 不设限的话一个几十 GB 的对象就能把进程打爆。
+MAX_DOWNLOAD_MB = max(1, env_int("OCI_MANAGER_MAX_DOWNLOAD_MB", 200))
+MAX_DOWNLOAD_BYTES = MAX_DOWNLOAD_MB * 1024 * 1024
+
 
 def secret_key() -> str:
-    return os.environ.get("OCI_MANAGER_SECRET_KEY", "oci-manager-dev-key")
+    """会话签名密钥。
+
+    优先级：环境变量 > 落盘的随机密钥（首次启动自动生成）> 报错。
+    不再回退到硬编码默认值，避免他人伪造会话 cookie。
+    """
+    env_value = os.environ.get("OCI_MANAGER_SECRET_KEY", "").strip()
+    if env_value and env_value not in {"change-this-secret-key", "oci-manager-dev-key"}:
+        return env_value
+    secret_file = DATA_DIR / ".secret_key"
+    if secret_file.exists():
+        saved = secret_file.read_text(encoding="utf-8").strip()
+        if saved:
+            return saved
+    import secrets as _secrets
+
+    generated = _secrets.token_urlsafe(48)
+    secret_file.write_text(generated, encoding="utf-8")
+    try:
+        os.chmod(secret_file, 0o600)
+    except OSError:
+        pass
+    return generated
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -178,6 +211,15 @@ def login_lock_seconds() -> int:
 
 def session_cookie_secure() -> bool:
     return env_bool("OCI_MANAGER_SESSION_COOKIE_SECURE", False)
+
+
+def trusted_proxy_enabled() -> bool:
+    """是否信任反向代理头（X-Forwarded-For）。
+
+    默认关闭：登录限速使用 request.remote_addr（真实来源），避免攻击者伪造
+    X-Forwarded-For 绕过限速。只有部署在可信反代（nginx/traefik）之后时才应开启。
+    """
+    return env_bool("OCI_MANAGER_TRUSTED_PROXY", False)
 
 
 def format_region(region: str) -> str:

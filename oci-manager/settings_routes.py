@@ -5,7 +5,7 @@ import os
 from flask import Blueprint, flash, redirect, request, url_for
 
 from app_settings import app_setting_enabled, load_app_settings, save_app_settings
-from notify import notification_targets, notify
+from notify import notification_targets, notify, valid_notification_url
 from rendering import render_page
 from settings import DATA_DIR, SQLITE_PATH
 
@@ -41,12 +41,21 @@ def settings_home():
 
 @settings_bp.route("/settings/notifications", methods=["POST"])
 def notification_save():
+    webhook_url = request.form.get("webhook_url", "").strip()
+    ntfy_server = request.form.get("ntfy_server", "").strip()
+    # 只做 scheme 级校验（不解析 DNS），离线环境也能正常保存；发送时 notify 再做完整校验
+    if webhook_url and not valid_notification_url(webhook_url):
+        flash("Webhook 地址无效：必须是 http(s):// 开头的完整 URL。", "error")
+        return redirect(url_for("settings_page.settings_home"))
+    if ntfy_server and not valid_notification_url(ntfy_server):
+        flash("ntfy 服务器地址无效：必须是 http(s):// 开头的完整 URL。", "error")
+        return redirect(url_for("settings_page.settings_home"))
     save_app_settings(
         {
             "offline_mode": "1" if request.form.get("offline_mode") else "0",
-            "webhook_url": request.form.get("webhook_url", ""),
-            "ntfy_server": request.form.get("ntfy_server", ""),
-            "ntfy_topic": request.form.get("ntfy_topic", ""),
+            "webhook_url": webhook_url,
+            "ntfy_server": ntfy_server,
+            "ntfy_topic": request.form.get("ntfy_topic", "").strip(),
         }
     )
     flash("通知设置已保存。", "success")

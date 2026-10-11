@@ -1,23 +1,18 @@
 {% extends "base.html" %}
 
 {% block title %}对象存储 | OCI 管理器{% endblock %}
+{% block page_title %}对象存储{% endblock %}
+{% block page_desc %}命名空间 {{ namespace_name }} · 租户 {{ tenant_name }}{% endblock %}
+{% block page_actions %}
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/object-storage/export{% if selected_bucket %}?bucket={{ selected_bucket|urlencode }}&prefix={{ object_prefix|urlencode }}{% endif %}">导出 CSV</a>
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/object-storage/rclone.conf{% if selected_bucket %}?bucket={{ selected_bucket|urlencode }}{% endif %}">rclone 配置</a>
+{% endblock %}
+
 {% block content %}
 <section class="metrics">
   <div class="metric"><div class="label">Bucket 数量</div><div class="value">{{ storage_stats.bucket_count }}</div></div>
   <div class="metric"><div class="label">对象数量</div><div class="value">{{ storage_stats.object_count }}</div></div>
   <div class="metric"><div class="label">已用容量</div><div class="value" style="font-size:1.2rem">{{ storage_stats.total_size|format_bytes }}</div></div>
-</section>
-
-<section class="section-head">
-  <div>
-    <div class="eyebrow">对象存储</div>
-    <h2>命名空间 {{ namespace_name }}</h2>
-    <div class="section-sub">Bucket、对象、上传和下载。</div>
-  </div>
-  <div class="actions">
-    <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/object-storage/export{% if selected_bucket %}?bucket={{ selected_bucket|urlencode }}&prefix={{ object_prefix|urlencode }}{% endif %}">导出 CSV</a>
-    <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/object-storage/rclone.conf{% if selected_bucket %}?bucket={{ selected_bucket|urlencode }}{% endif %}">rclone 配置</a>
-  </div>
 </section>
 
 {% if load_error %}
@@ -36,11 +31,18 @@
 
   <article class="panel">
     <h3>上传对象</h3>
-    <form method="post" action="/tenant/{{ tenant_name }}/object-storage/object" enctype="multipart/form-data">
+    <form method="post" action="/tenant/{{ tenant_name }}/object-storage/object" enctype="multipart/form-data"
+          data-multipart="99614720"
+          data-multipart-init="/tenant/{{ tenant_name }}/object-storage/multipart/init"
+          data-multipart-part="/tenant/{{ tenant_name }}/object-storage/multipart/part"
+          data-multipart-complete="/tenant/{{ tenant_name }}/object-storage/multipart/complete"
+          data-multipart-abort="/tenant/{{ tenant_name }}/object-storage/multipart/abort">
       <div class="field"><label>目标 Bucket</label><select name="bucket_name">{% for bucket in buckets %}<option value="{{ bucket.name }}" {% if bucket.name == selected_bucket %}selected{% endif %}>{{ bucket.name }}</option>{% endfor %}</select></div>
       <div class="field"><label>文件</label><input type="file" name="object_file" required></div>
       <div class="field"><label>对象名称</label><input name="object_name" placeholder="留空则使用原始文件名"></div>
       <button class="btn btn-primary" type="submit">上传对象</button>
+      <div id="multipart-status" class="flash info" hidden></div>
+      <div class="section-sub small">超过约 95MB 的文件自动按 64MB 分片上传；失败会清理未完成的分片。</div>
     </form>
   </article>
 
@@ -60,7 +62,7 @@
 
 <section class="grid grid-2" style="margin-top:20px;">
   <article class="table-card">
-    <div class="section-head"><div><div class="eyebrow">Bucket</div><h2>Bucket 列表</h2></div></div>
+    <div class="section-head"><div><h2>Bucket 列表</h2></div></div>
     <div class="table-wrap">
       <table>
         <thead><tr><th>名称</th><th>层级</th><th>对象数</th><th>容量</th><th>操作</th></tr></thead>
@@ -91,7 +93,7 @@
   </article>
 
   <article class="info-card">
-    <div class="section-head"><div><div class="eyebrow">挂载</div><h2>本地挂载说明</h2></div></div>
+    <div class="section-head"><div><h2>本地挂载说明</h2></div></div>
     <p class="section-sub"><code>rclone mount</code> 参数。</p>
     <div class="kv-grid">
       <div class="kv-item"><strong>区域</strong>{{ mount_helper.region }}</div>
@@ -115,7 +117,7 @@ rclone mount {{ mount_helper.rclone_remote }}:{{ mount_helper.bucket }} X:\objec
 {% if selected_bucket %}
 <section class="grid grid-2" style="margin-top:20px;">
   <article class="info-card">
-    <div class="section-head"><div><div class="eyebrow">详情</div><h2>{{ selected_bucket_detail.name }}</h2></div></div>
+    <div class="section-head"><div><h2>{{ selected_bucket_detail.name }}</h2></div></div>
     <div class="kv-grid">
       <div class="kv-item"><strong>存储层级</strong>{{ selected_bucket_detail.storage_tier }}</div>
       <div class="kv-item"><strong>公共访问</strong>{{ selected_bucket_detail.public_access_type }}</div>
@@ -147,17 +149,28 @@ rclone mount {{ mount_helper.rclone_remote }}:{{ mount_helper.bucket }} X:\objec
     <form method="get" action="/tenant/{{ tenant_name }}/object-storage">
       <input type="hidden" name="bucket" value="{{ selected_bucket }}">
       <div class="field"><label>前缀过滤</label><input name="prefix" value="{{ object_prefix }}" placeholder="例如 backup/ 或 logs/"></div>
+    </form>
+    {% if selected_bucket and object_prefix %}
+    <form class="inline" method="post" action="/tenant/{{ tenant_name }}/object-storage/prefix-delete"
+          data-confirm-value="{{ object_prefix }}" data-confirm-label="前缀" style="margin-top:8px;">
+      <input type="hidden" name="bucket_name" value="{{ selected_bucket }}">
+      <input type="hidden" name="prefix" value="{{ object_prefix }}">
+      <input type="hidden" name="confirm_name" value="">
+      <button class="btn btn-danger" type="submit">删除前缀 {{ object_prefix }} 下全部对象</button>
+    </form>
+    {% endif %}
+  </article>
       <button class="btn btn-primary" type="submit">应用筛选</button>
     </form>
     <div class="kv-grid" style="margin-top:16px;">
-      <div class="kv-item"><strong>筛选后对象数</strong>{{ selected_stats.object_count }}</div>
+      <div class="kv-item"><strong>筛选后对象数</strong>{{ selected_stats.object_count }}{% if objects_truncated %} <span class="badge badge-warn" title="对象数超过单次浏览上限，请用前缀缩小范围">已截断</span>{% endif %}</div>
       <div class="kv-item"><strong>筛选后容量</strong>{{ selected_stats.total_size|format_bytes }}</div>
     </div>
   </article>
 </section>
 
 <section class="table-card" style="margin-top:20px;">
-  <div class="section-head"><div><div class="eyebrow">对象</div><h2>{{ selected_bucket }}</h2></div></div>
+  <div class="section-head"><div><h2>{{ selected_bucket }}</h2></div></div>
   <div class="table-wrap">
     <table>
       <thead><tr><th>名称</th><th>大小</th><th>存储层</th><th>更新时间</th><th>操作</th></tr></thead>
@@ -172,7 +185,7 @@ rclone mount {{ mount_helper.rclone_remote }}:{{ mount_helper.bucket }} X:\objec
             <div class="actions">
               <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/object-storage/object/preview?bucket={{ selected_bucket|urlencode }}&name={{ obj.name|urlencode }}">预览</a>
               <a class="btn btn-ghost" href="/tenant/{{ tenant_name }}/object-storage/object/download?bucket={{ selected_bucket|urlencode }}&name={{ obj.name|urlencode }}">下载</a>
-              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/object-storage/object/delete" onsubmit="return confirm('确认删除对象 {{ obj.name }} 吗？');">
+              <form class="inline" method="post" action="/tenant/{{ tenant_name }}/object-storage/object/delete" data-confirm="确认删除对象 {{ obj.name }} 吗？">
                 <input type="hidden" name="bucket_name" value="{{ selected_bucket }}">
                 <input type="hidden" name="object_name" value="{{ obj.name }}">
                 <button class="btn btn-danger" type="submit">删除</button>

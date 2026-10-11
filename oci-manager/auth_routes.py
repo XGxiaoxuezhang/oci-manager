@@ -7,7 +7,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import login_is_locked, record_login_attempt
 from rendering import render_page
-from settings import login_lock_seconds, login_max_failures
+from settings import login_lock_seconds, login_max_failures, trusted_proxy_enabled
 from storage import ensure_auth_settings, load_auth_settings, now_iso, save_auth_settings
 
 auth_bp = Blueprint("auth", __name__)
@@ -24,11 +24,22 @@ def safe_next_url(value: str | None) -> str:
 
 @auth_bp.before_app_request
 def require_login():
-    ensure_auth_settings()
+    # ensure_auth_settings() 已移到 app 启动时执行一次，这里不再每请求读一遍 YAML
     if request.endpoint in {"auth.login", "healthz", "chrome_devtools_probe", "static"}:
         return None
     if not session.get("authenticated"):
         return redirect(url_for("auth.login", next=request.path))
+    # 首次部署还没改掉初始密码时，只允许改密和登出
+    if session.get("must_change_password") and request.endpoint not in {
+        "auth.account",
+        "auth.change_password",
+        "auth.logout",
+    }:
+        if request.headers.get("X-Requested-With") == "fetch":
+            # fetch 请求拿 302 HTML 会被前端报成"网络错误"，用户无从得知原因
+            return {"ok": False, "message": "首次部署请先修改初始登录密码。"}, 401
+        flash("首次部署请先修改初始登录密码。", "error")
+        return redirect(url_for("auth.account"))
     return None
 
 
@@ -38,7 +49,10 @@ def login():
         return redirect(url_for("tenant.index"))
     settings = load_auth_settings()
     if request.method == "POST":
-        remote_addr = request.headers.get("X-Forwarded-For", request.remote_addr or "-").split(",")[0].strip()
+        if trusted_proxy_enabled():
+            remote_addr = request.headers.get("X-Forwarded-For", request.remote_addr or "-").split(",")[0].strip()
+        else:
+            remote_addr = request.remote_addr or "-"
         if login_is_locked(remote_addr):
             minutes = max(1, login_lock_seconds() // 60)
             flash(f"失败次数过多，请约 {minutes} 分钟后再试。", "error")
@@ -50,6 +64,11 @@ def login():
             session.permanent = True
             session["authenticated"] = True
             session["username"] = username
+            if settings.get("must_change_password"):
+                session["must_change_password"] = True
+                flash("首次部署请先修改初始登录密码。", "error")
+                return redirect(url_for("auth.account"))
+            session.pop("must_change_password", None)
             return redirect(safe_next_url(request.args.get("next")))
         record_login_attempt(remote_addr, username, False)
         flash(f"用户名或密码错误。连续失败 {login_max_failures()} 次会临时锁定。", "error")
@@ -83,7 +102,9 @@ def change_password():
         flash("两次输入的新密码不一致。", "error")
         return redirect(url_for("auth.account"))
     settings["password_hash"] = generate_password_hash(new_password)
+    settings["must_change_password"] = False
     settings["updated"] = now_iso()
     save_auth_settings(settings)
+    session.pop("must_change_password", None)
     flash("登录密码已更新。", "success")
     return redirect(url_for("auth.account"))

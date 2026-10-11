@@ -9,16 +9,21 @@ import oci
 
 from oci_helpers import build_config, client_kwargs, list_all
 from storage import fmt_dt
+from compartment_scope import compartment_of
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def get_email_client(tenant_cfg: dict[str, Any]) -> oci.email.EmailClient:
-    return oci.email.EmailClient(build_config(tenant_cfg), **client_kwargs())
+    from oci_helpers import get_cached_client
+
+    return get_cached_client("email", tenant_cfg, lambda: oci.email.EmailClient(build_config(tenant_cfg), **client_kwargs()))
 
 
 def get_email_dp_client(tenant_cfg: dict[str, Any]) -> oci.email_data_plane.EmailDPClient:
-    return oci.email_data_plane.EmailDPClient(build_config(tenant_cfg), **client_kwargs())
+    from oci_helpers import get_cached_client
+
+    return get_cached_client("email_dp", tenant_cfg, lambda: oci.email_data_plane.EmailDPClient(build_config(tenant_cfg), **client_kwargs()))
 
 
 def validate_email_address(value: str, field_name: str = "邮箱") -> str:
@@ -63,7 +68,7 @@ def _sender_row(sender: Any) -> dict[str, Any]:
 
 def email_context(tenant_cfg: dict[str, Any]) -> dict[str, Any]:
     client = get_email_client(tenant_cfg)
-    compartment_id = tenant_cfg["tenant_id"]
+    compartment_id = compartment_of(tenant_cfg)
     configuration = client.get_email_configuration(compartment_id=compartment_id).data
     domains = list_all(client.list_email_domains, compartment_id=compartment_id)
     senders = list_all(client.list_senders, compartment_id=compartment_id)
@@ -107,7 +112,7 @@ def create_sender(tenant_cfg: dict[str, Any], email_address: str) -> dict[str, s
     client = get_email_client(tenant_cfg)
     response = client.create_sender(
         oci.email.models.CreateSenderDetails(
-            compartment_id=tenant_cfg["tenant_id"],
+            compartment_id=compartment_of(tenant_cfg),
             email_address=normalized_email,
         )
     )
@@ -124,7 +129,7 @@ def create_email_domain(tenant_cfg: dict[str, Any], domain_name: str, descriptio
         raise ValueError("域名格式不正确。")
     response = get_email_client(tenant_cfg).create_email_domain(
         oci.email.models.CreateEmailDomainDetails(
-            compartment_id=tenant_cfg["tenant_id"],
+            compartment_id=compartment_of(tenant_cfg),
             name=normalized,
             description=(description or "").strip() or None,
         )
@@ -156,7 +161,7 @@ def send_test_email(
     client = get_email_dp_client(tenant_cfg)
     details = oci.email_data_plane.models.SubmitEmailDetails(
         sender=oci.email_data_plane.models.Sender(
-            compartment_id=tenant_cfg["tenant_id"],
+            compartment_id=compartment_of(tenant_cfg),
             sender_address=oci.email_data_plane.models.EmailAddress(email=normalized_sender),
         ),
         recipients=oci.email_data_plane.models.Recipients(
@@ -175,3 +180,25 @@ def send_test_email(
         "envelope_id": getattr(payload, "envelope_id", "") or "",
         "suppressed_recipients": [item for item in suppressed if item],
     }
+
+
+def delete_email_domain(tenant_cfg: dict[str, Any], domain_id: str) -> None:
+    """删除邮件域名；先清掉非 ACTIVE 的 DKIM（激活中的 DKIM 会挡住域名删除）。"""
+    client = get_email_client(tenant_cfg)
+    try:
+        for dkim in list_all(client.list_dkims, email_domain_id=domain_id):
+            if getattr(dkim, "lifecycle_state", "") != "ACTIVE":
+                try:
+                    client.delete_dkim(dkim.id)
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    client.delete_email_domain(domain_id)
+
+
+def create_dkim(tenant_cfg: dict[str, Any], domain_id: str) -> dict[str, Any]:
+    """为已有域名补建 DKIM 记录（创建域名未自动生成时用）。"""
+    client = get_email_client(tenant_cfg)
+    dkim = client.create_dkim(oci.email.models.CreateDkimDetails(email_domain_id=domain_id)).data
+    return _dkim_row("", dkim)

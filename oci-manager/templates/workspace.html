@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block title %}{{ tenant_name }} 工作区 | OCI 管理器{% endblock %}
+{% block page_title %}{{ tenant_name }}{% endblock %}
+{% block page_desc %}租户工作区：模块入口、额度用量与近期动态。{% endblock %}
+{% block page_actions %}
+<a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/instances">进入实例管理</a>
+{% endblock %}
+
+{% block content %}
+{% if load_error %}
+<div class="flash error">工作区数据读取失败：{{ load_error }}</div>
+{% endif %}
+
+<section class="panel" style="margin-bottom:14px;">
+  <div class="section-head">
+    <div><h2>模块入口</h2></div>
+  </div>
+  <div class="tenant-actions">
+    <a class="btn btn-primary" href="/tenant/{{ tenant_name }}/instances">实例</a>
+    <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/volumes">块存储</a>
+    <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/object-storage">对象存储</a>
+    <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/databases">数据库</a>
+    <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/email">邮件</a>
+    <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/network">VCN 网络</a>
+    <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/public-ips">公网 IP</a>
+    <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/users">用户</a>
+    <a class="btn btn-secondary" href="/tenant/{{ tenant_name }}/cloud-audit">云端审计</a>
+  </div>
+</section>
+
+<section class="grid grid-3" style="margin-bottom:14px;">
+  {% for item in usage_items %}
+  <article class="info-card">
+    <div class="section-head">
+      <div><h3>{{ item.label }}</h3></div>
+      <span class="badge {{ 'badge-bad' if item.status == 'over' else 'badge-good' }}">{{ '超限' if item.status == 'over' else '额度内' }}</span>
+    </div>
+    <div class="quota-bar"><span style="width: {{ [item.percent, 100]|min }}%"></span></div>
+    <div class="section-sub small">已用 {{ item.used }} / 常见免费额度 {{ item.limit }} {{ item.unit }}</div>
+  </article>
+  {% else %}
+  <div class="empty">额度用量读取失败或暂无数据，可稍后刷新重试。</div>
+  {% endfor %}
+</section>
+
+{% if risks %}
+<section class="table-card" style="margin-bottom:14px;">
+  <div class="section-head"><div><h2>风险提示</h2></div></div>
+  <div class="flash-stack">
+    {% for risk in risks %}
+    <div class="flash warn">{{ risk.text }}</div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="grid grid-2">
+  <div class="table-card">
+    <div class="section-head">
+      <div><h2>最近创建任务</h2></div>
+      <a class="btn btn-ghost" href="/tenant/{{ tenant_name }}/instances">全部任务</a>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>任务</th><th>状态</th><th>尝试</th></tr></thead>
+        <tbody>
+          {% for task in recent_tasks %}
+          <tr>
+            <td class="small" title="{{ task.id }}">{{ task.id[:24] }}…</td>
+            <td><span class="badge {{ 'badge-good' if task.status == 'success' else 'badge-bad' if task.status in ['failed', 'cancelled', 'interrupted'] else 'badge-mid' }}">{{ task.status }}</span></td>
+            <td>{{ task.current_attempt }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3"><div class="empty">暂无创建任务。</div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="table-card">
+    <div class="section-head">
+      <div><h2>最近操作</h2></div>
+      <a class="btn btn-ghost" href="/audit">全部日志</a>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>时间</th><th>动作</th><th>状态</th></tr></thead>
+        <tbody>
+          {% for event in recent_events %}
+          <tr>
+            <td>{{ event.time_text if event.time_text else event.time }}</td>
+            <td title="{{ event.action }}">{{ event.action }}</td>
+            <td><span class="badge badge-mid">{{ event.status }}</span></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3"><div class="empty">暂无本租户的操作记录。</div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}

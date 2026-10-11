@@ -1,8 +1,17 @@
 from __future__ import annotations
 
+from oci_helpers import friendly_error
 from flask import Blueprint, flash, redirect, request, url_for
 
-from email_service import create_email_domain, create_sender, delete_sender, email_context, send_test_email
+from email_service import (
+    create_dkim,
+    create_email_domain,
+    create_sender,
+    delete_email_domain,
+    delete_sender,
+    email_context,
+    send_test_email,
+)
 from export_utils import send_csv
 from oci_helpers import build_dashboard_cards
 from rendering import render_page
@@ -30,7 +39,7 @@ def email_home(tenant_name: str):
         context = run_with_timeout(8, email_context, tenant_cfg)
         return render_page("email", tenant_name=tenant_name, **context)
     except Exception as exc:
-        flash(f"读取邮件配置失败：{exc}", "error")
+        flash(f"读取邮件配置失败：{friendly_error(exc)}", "error")
         return render_page(
             "email",
             tenant_name=tenant_name,
@@ -58,11 +67,31 @@ def email_export(tenant_name: str):
             return send_csv(f"{tenant_name}-email-dkims.csv", ["domain", "name", "state", "cname_record_value", "txt_record_value", "created", "id"], context["dkims"])
         return send_csv(f"{tenant_name}-email-senders.csv", ["email_address", "state", "email_ip_pool_id", "created", "id"], context["senders"])
     except Exception as exc:
-        flash(f"导出邮件配置失败：{exc}", "error")
+        flash(f"导出邮件配置失败：{friendly_error(exc)}", "error")
         return redirect(url_for("email.email_home", tenant_name=tenant_name))
 
 
 @email_bp.route("/tenant/<tenant_name>/email/domains", methods=["POST"])
+def _render_email_with_form(tenant_name: str, tenant_cfg: dict[str, Any], form):
+    """创建域名/发件人失败时带值重渲染。"""
+    try:
+        context = run_with_timeout(8, email_context, tenant_cfg)
+        return render_page("email", tenant_name=tenant_name, **context, form=form)
+    except Exception as exc:
+        return render_page(
+            "email",
+            tenant_name=tenant_name,
+            form=form,
+            email_stats={"domain_count": 0, "active_domain_count": 0, "sender_count": 0},
+            email_guides=[],
+            email_configuration={"http_submit_endpoint": "-", "smtp_submit_endpoint": "-"},
+            email_domains=[],
+            dkims=[],
+            senders=[],
+            load_error=str(exc),
+        )
+
+
 def email_create_domain(tenant_name: str):
     tenant_cfg = require_tenant(tenant_name)
     if tenant_cfg is None:
@@ -70,9 +99,10 @@ def email_create_domain(tenant_name: str):
     try:
         domain = create_email_domain(tenant_cfg, request.form.get("domain_name", ""), request.form.get("description", ""))
         flash(f"邮件域名 {domain['name']} 已提交创建请求。", "success")
+        return redirect(url_for("email.email_home", tenant_name=tenant_name))
     except Exception as exc:
-        flash(f"创建邮件域名失败：{exc}", "error")
-    return redirect(url_for("email.email_home", tenant_name=tenant_name))
+        flash(f"创建邮件域名失败：{friendly_error(exc)}", "error")
+        return _render_email_with_form(tenant_name, tenant_cfg, request.form)
 
 
 @email_bp.route("/tenant/<tenant_name>/email/senders", methods=["POST"])
@@ -88,7 +118,7 @@ def email_create_sender(tenant_name: str):
         sender = create_sender(tenant_cfg, email_address)
         flash(f"发件人 {sender['email_address']} 已提交创建请求。", "success")
     except Exception as exc:
-        flash(f"创建发件人失败：{exc}", "error")
+        flash(f"创建发件人失败：{friendly_error(exc)}", "error")
     return redirect(url_for("email.email_home", tenant_name=tenant_name))
 
 
@@ -101,7 +131,7 @@ def email_delete_sender(tenant_name: str, sender_id: str):
         delete_sender(tenant_cfg, sender_id)
         flash("发件人删除请求已提交。", "success")
     except Exception as exc:
-        flash(f"删除发件人失败：{exc}", "error")
+        flash(f"删除发件人失败：{friendly_error(exc)}", "error")
     return redirect(url_for("email.email_home", tenant_name=tenant_name))
 
 
@@ -119,9 +149,9 @@ def email_send_test(tenant_name: str):
         flash("发件人邮箱和收件人邮箱不能为空。", "error")
         return redirect(url_for("email.email_home", tenant_name=tenant_name))
     try:
-        result = run_with_timeout(
-            15,
-            send_test_email,
+        # 发邮件是非幂等写操作，不走 run_with_timeout（超时只是放弃等待、线程仍在跑，
+        # 会让"看起来失败但已发出"的邮件被重试双发）；直接调用，靠 SDK timeout 兜底。
+        result = send_test_email(
             tenant_cfg,
             sender_email,
             to_email,
@@ -137,5 +167,30 @@ def email_send_test(tenant_name: str):
             "success",
         )
     except Exception as exc:
-        flash(f"发送测试邮件失败：{exc}", "error")
+        flash(f"发送测试邮件失败：{friendly_error(exc)}", "error")
+    return redirect(url_for("email.email_home", tenant_name=tenant_name))
+
+@email_bp.route("/tenant/<tenant_name>/email/domains/<domain_id>/delete", methods=["POST"])
+def email_delete_domain(tenant_name: str, domain_id: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        delete_email_domain(tenant_cfg, domain_id)
+        flash("邮件域名已删除。", "success")
+    except Exception as exc:
+        flash(f"删除邮件域名失败：{friendly_error(exc)}", "error")
+    return redirect(url_for("email.email_home", tenant_name=tenant_name))
+
+
+@email_bp.route("/tenant/<tenant_name>/email/domains/<domain_id>/create-dkim", methods=["POST"])
+def email_create_dkim(tenant_name: str, domain_id: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    try:
+        create_dkim(tenant_cfg, domain_id)
+        flash("已创建 DKIM 记录，请按 DKIM 列表里的 CNAME/TXT 值配置 DNS。", "success")
+    except Exception as exc:
+        flash(f"创建 DKIM 失败：{friendly_error(exc)}", "error")
     return redirect(url_for("email.email_home", tenant_name=tenant_name))
