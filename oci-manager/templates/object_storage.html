@@ -31,11 +31,18 @@
 
   <article class="panel">
     <h3>上传对象</h3>
-    <form method="post" action="/tenant/{{ tenant_name }}/object-storage/object" enctype="multipart/form-data">
+    <form method="post" action="/tenant/{{ tenant_name }}/object-storage/object" enctype="multipart/form-data"
+          data-multipart="99614720"
+          data-multipart-init="/tenant/{{ tenant_name }}/object-storage/multipart/init"
+          data-multipart-part="/tenant/{{ tenant_name }}/object-storage/multipart/part"
+          data-multipart-complete="/tenant/{{ tenant_name }}/object-storage/multipart/complete"
+          data-multipart-abort="/tenant/{{ tenant_name }}/object-storage/multipart/abort">
       <div class="field"><label>目标 Bucket</label><select name="bucket_name">{% for bucket in buckets %}<option value="{{ bucket.name }}" {% if bucket.name == selected_bucket %}selected{% endif %}>{{ bucket.name }}</option>{% endfor %}</select></div>
       <div class="field"><label>文件</label><input type="file" name="object_file" required></div>
       <div class="field"><label>对象名称</label><input name="object_name" placeholder="留空则使用原始文件名"></div>
       <button class="btn btn-primary" type="submit">上传对象</button>
+      <div id="multipart-status" class="flash info" hidden></div>
+      <div class="section-sub small">超过约 95MB 的文件自动按 64MB 分片上传；失败会清理未完成的分片。</div>
     </form>
   </article>
 
@@ -142,6 +149,17 @@ rclone mount {{ mount_helper.rclone_remote }}:{{ mount_helper.bucket }} X:\objec
     <form method="get" action="/tenant/{{ tenant_name }}/object-storage">
       <input type="hidden" name="bucket" value="{{ selected_bucket }}">
       <div class="field"><label>前缀过滤</label><input name="prefix" value="{{ object_prefix }}" placeholder="例如 backup/ 或 logs/"></div>
+    </form>
+    {% if selected_bucket and object_prefix %}
+    <form class="inline" method="post" action="/tenant/{{ tenant_name }}/object-storage/prefix-delete"
+          data-confirm-value="{{ object_prefix }}" data-confirm-label="前缀" style="margin-top:8px;">
+      <input type="hidden" name="bucket_name" value="{{ selected_bucket }}">
+      <input type="hidden" name="prefix" value="{{ object_prefix }}">
+      <input type="hidden" name="confirm_name" value="">
+      <button class="btn btn-danger" type="submit">删除前缀 {{ object_prefix }} 下全部对象</button>
+    </form>
+    {% endif %}
+  </article>
       <button class="btn btn-primary" type="submit">应用筛选</button>
     </form>
     <div class="kv-grid" style="margin-top:16px;">

@@ -62,8 +62,48 @@ def _empty_buckets(tenant_cfg: dict[str, Any]) -> list[dict[str, str]]:
     return rows
 
 
+def _reclaim_risk_instances(tenant_cfg: dict[str, Any]) -> list[dict[str, str]]:
+    """运行中但 7 天 CPU/内存 95 分位低于 20% 回收线的 Always Free 实例。"""
+    from cost_service import ALWAYS_FREE_SHAPES
+
+    compute = get_compute_client(tenant_cfg)
+    identity = get_identity_client(tenant_cfg)
+    running = []
+    for ad in list_all(identity.list_availability_domains, compartment_id=tenant_cfg["tenant_id"]):
+        for instance in list_all(compute.list_instances, compartment_id=compartment_of(tenant_cfg), availability_domain=ad.name):
+            if getattr(instance, "lifecycle_state", "") != "RUNNING":
+                continue
+            if getattr(instance, "shape", "") not in ALWAYS_FREE_SHAPES:
+                continue
+            running.append(instance)
+    if not running:
+        return []
+    from monitoring_service import reclaim_percentiles
+
+    percentiles = reclaim_percentiles(tenant_cfg)
+    rows: list[dict[str, str]] = []
+    for instance in running:
+        scores = percentiles.get(instance.id)
+        if not scores:
+            continue
+        cpu_p95 = scores.get("cpu_p95")
+        mem_p95 = scores.get("mem_p95")
+        if cpu_p95 is None or mem_p95 is None:
+            continue
+        if cpu_p95 < 20 and mem_p95 < 20:
+            rows.append(
+                {
+                    "kind": "reclaim_risk",
+                    "name": getattr(instance, "display_name", instance.id),
+                    "detail": f"{getattr(instance, 'shape', '-')} · 运行中 · 7 天 CPU 95 分位 {cpu_p95}% / 内存 {mem_p95}%（低于 20% 回收线）",
+                    "created": fmt_dt(getattr(instance, "time_created", None)),
+                }
+            )
+    return rows
+
+
 def idle_resources_context(tenant_cfg: dict[str, Any]) -> dict[str, Any]:
-    results: dict[str, Any] = {"instances": [], "boot_volumes": [], "buckets": []}
+    results: dict[str, Any] = {"instances": [], "boot_volumes": [], "buckets": [], "reclaim_risks": []}
     try:
         results["instances"] = _idle_instances(tenant_cfg)
     except Exception as exc:
@@ -76,5 +116,14 @@ def idle_resources_context(tenant_cfg: dict[str, Any]) -> dict[str, Any]:
         results["buckets"] = _empty_buckets(tenant_cfg)
     except Exception as exc:
         results["buckets_error"] = str(exc)
-    results["total"] = len(results["instances"]) + len(results["boot_volumes"]) + len(results["buckets"])
+    try:
+        results["reclaim_risks"] = _reclaim_risk_instances(tenant_cfg)
+    except Exception as exc:
+        results["reclaim_risks_error"] = str(exc)
+    results["total"] = (
+        len(results["instances"])
+        + len(results["boot_volumes"])
+        + len(results["buckets"])
+        + len(results["reclaim_risks"])
+    )
     return results

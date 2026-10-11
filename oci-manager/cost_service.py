@@ -19,6 +19,7 @@ FREE_LIMITS = {
     "block_volume_gbs": 200.0,
     "object_storage_gbs": 20.0,
     "adb_count": 2,
+    "volume_backup_count": 5,
 }
 
 
@@ -51,6 +52,7 @@ def free_tier_context(tenant_cfg: dict[str, Any]) -> dict[str, Any]:
         "block_volume_gbs": 0.0,
         "object_storage_gbs": 0.0,
         "adb_count": 0.0,
+        "volume_backup_count": 0.0,
     }
     risks: list[dict[str, str]] = []
     compute = get_compute_client(tenant_cfg)
@@ -92,6 +94,11 @@ def free_tier_context(tenant_cfg: dict[str, Any]) -> dict[str, Any]:
         risks.append({"level": "warn", "text": f"对象存储用量读取失败：{exc}"})
 
     try:
+        usage["volume_backup_count"] = float(len(list_all(block.list_volume_backups, compartment_id=compartment_of(tenant_cfg))))
+    except Exception:
+        pass
+
+    try:
         db_client = get_database_client(tenant_cfg)
         for db in list_all(db_client.list_autonomous_databases, compartment_id=compartment_of(tenant_cfg)):
             if getattr(db, "lifecycle_state", "") != "TERMINATED" and bool(getattr(db, "is_free_tier", False)):
@@ -108,6 +115,7 @@ def free_tier_context(tenant_cfg: dict[str, Any]) -> dict[str, Any]:
         _usage_item("block_volume_gbs", "块/引导卷", usage["block_volume_gbs"], FREE_LIMITS["block_volume_gbs"], "GB"),
         _usage_item("object_storage_gbs", "对象存储", usage["object_storage_gbs"], FREE_LIMITS["object_storage_gbs"], "GB"),
         _usage_item("adb_count", "自治数据库", usage["adb_count"], FREE_LIMITS["adb_count"], "个"),
+        _usage_item("volume_backup_count", "卷备份", usage["volume_backup_count"], FREE_LIMITS["volume_backup_count"], "个"),
     ]
     for item in items:
         if item["status"] == "over":

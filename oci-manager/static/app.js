@@ -177,6 +177,105 @@
     });
   });
 
+  // 大文件分片上传：超过阈值自动改走 multipart（init → 逐片 → commit），失败自动 abort
+  document.querySelectorAll("form[data-multipart]").forEach(function (form) {
+    form.addEventListener("submit", function (event) {
+      var fileInput = form.querySelector("input[type='file']");
+      var file = fileInput && fileInput.files[0];
+      var threshold = Number(form.getAttribute("data-multipart")) || 0;
+      if (!file || file.size <= threshold) {
+        return; // 小文件走原有整表单提交
+      }
+      event.preventDefault();
+      var headers = { "X-CSRF-Token": csrfToken };
+      var status = document.getElementById("multipart-status");
+      var submitBtn = form.querySelector("button[type='submit']");
+      if (status) { status.hidden = false; status.className = "flash info"; status.textContent = "正在初始化分片上传…"; }
+      if (submitBtn) { submitBtn.disabled = true; }
+      var fd = new FormData();
+      fd.set("bucket_name", form.querySelector("select[name='bucket_name']").value);
+      fd.set("object_name", (form.querySelector("input[name='object_name']").value || file.name).trim());
+      var objectName = fd.get("object_name");
+      fetch(form.getAttribute("data-multipart-init"), { method: "POST", headers: headers, body: fd })
+        .then(function (r) { return r.json(); })
+        .then(function (init) {
+          if (!init.ok) { throw new Error(init.message || "初始化失败"); }
+          var chunkSize = Number(init.chunk_mb || 64) * 1024 * 1024;
+          var total = Math.max(1, Math.ceil(file.size / chunkSize));
+          var token = init.token;
+          var index = 0;
+          function next() {
+            if (index >= total) {
+              if (status) { status.textContent = "正在合并分片…"; }
+              var cd = new FormData();
+              cd.set("token", token);
+              return fetch(form.getAttribute("data-multipart-complete"), { method: "POST", headers: headers, body: cd })
+                .then(function (r) { return r.json(); })
+                .then(function (done) {
+                  if (!done.ok) { throw new Error(done.message || "合并失败"); }
+                  if (status) { status.className = "flash success"; status.textContent = "上传完成：" + objectName; }
+                  setTimeout(function () { window.location.reload(); }, 1200);
+                });
+            }
+            index += 1;
+            if (status) { status.textContent = "上传中 " + index + "/" + total + " 片…"; }
+            var partFd = new FormData();
+            partFd.set("token", token);
+            partFd.set("part_number", String(index));
+            partFd.set("part_file", file.slice((index - 1) * chunkSize, Math.min(index * chunkSize, file.size)), "part-" + index);
+            return fetch(form.getAttribute("data-multipart-part"), { method: "POST", headers: headers, body: partFd })
+              .then(function (r) { return r.json(); })
+              .then(function (part) {
+                if (!part.ok) { throw new Error(part.message || "分片上传失败"); }
+                return next();
+              });
+          }
+          return next();
+        })
+        .catch(function (err) {
+          if (status) { status.className = "flash error"; status.textContent = "分片上传失败：" + err.message; }
+          if (submitBtn) { submitBtn.disabled = false; }
+        });
+    });
+  });
+
+  // 批量电源操作：复选框在数据行里（行内还有各自的表单，不能嵌套），
+  // 提交时把勾选的实例 id 注入批量表单
+  var batchForm = document.querySelector("form[data-batch-form]");
+  if (batchForm) {
+    var batchChecks = Array.prototype.slice.call(document.querySelectorAll("input[data-batch-check]"));
+    var batchSubmit = batchForm.querySelector("[data-batch-submit]");
+    function syncBatchButtons() {
+      var selected = batchChecks.filter(function (c) { return c.checked; });
+      if (batchSubmit) {
+        batchSubmit.disabled = selected.length === 0;
+        batchSubmit.textContent = selected.length ? "批量执行（已选 " + selected.length + " 台）" : "批量执行（未选择）";
+      }
+    }
+    batchChecks.forEach(function (c) { c.addEventListener("change", syncBatchButtons); });
+    var selectAll = document.querySelector("[data-batch-all]");
+    if (selectAll) {
+      selectAll.addEventListener("change", function () {
+        batchChecks.forEach(function (c) { c.checked = selectAll.checked; });
+        syncBatchButtons();
+      });
+    }
+    batchForm.addEventListener("submit", function (event) {
+      var selected = batchChecks.filter(function (c) { return c.checked; });
+      if (!selected.length) {
+        event.preventDefault();
+        return;
+      }
+      selected.forEach(function (c) {
+        var input = document.createElement("input");
+        input.type = "hidden";
+        input.name = "instance_id";
+        input.value = c.value;
+        batchForm.appendChild(input);
+      });
+    });
+  }
+
   // 实例表筛选：文本匹配整行内容，状态下拉从行内状态徽章自动收集
   document.querySelectorAll("[data-table-filter]").forEach(function (toolbar) {
     var wrap = toolbar.parentElement ? toolbar.parentElement.querySelector(".table-wrap") : null;

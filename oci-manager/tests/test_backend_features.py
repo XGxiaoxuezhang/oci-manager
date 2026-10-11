@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 def _fake_objects_page(names, next_start_with=None):
     response = MagicMock()
@@ -176,3 +178,135 @@ def test_resize_volume_rejects_below_50(app_client):
         follow_redirects=True,
     )
     assert "50 ~ 32768" in resp2.get_data(as_text=True)
+
+
+def test_multipart_lifecycle():
+    """init → 逐片上传 → commit 的服务层编排。"""
+    import object_storage_service as oss
+
+    client = MagicMock()
+    client.get_namespace.return_value.data = "myns"
+    client.create_multipart_upload.return_value.data.upload_id = "upid"
+    client.upload_part.return_value.data.etag = "etag1"
+    cfg = {"tenant_id": "ocid1.tenancy.oc1..mp", "_tenant_name": "t"}
+    oss._NAMESPACE_CACHE.clear()
+
+    with patch.object(oss, "get_object_storage_client", return_value=client):
+        info = oss.init_multipart(cfg, "bucket1", "big/file.iso")
+        blob = MagicMock()
+        blob.tell.return_value = 7
+        oss.upload_multipart_part(cfg, info["token"], 1, blob, 7)
+        result = oss.commit_multipart(cfg, info["token"])
+
+    assert result["parts"] == 1
+    create_args = client.create_multipart_upload.call_args[0]
+    assert create_args[0] == "myns" and create_args[1] == "bucket1"
+    commit_details = client.commit_multipart_upload.call_args[0][4]
+    assert commit_details.parts_to_commit[0].part_num == 1
+
+    # commit 后会话已销毁：重复 commit 报"会话不存在"
+    with patch.object(oss, "get_object_storage_client", return_value=client):
+        with pytest.raises(ValueError, match="会话不存在"):
+            oss.commit_multipart(cfg, info["token"])
+    oss._NAMESPACE_CACHE.clear()
+
+
+def test_multipart_abort_cleans_session():
+    import object_storage_service as oss
+
+    client = MagicMock()
+    client.get_namespace.return_value.data = "myns"
+    client.create_multipart_upload.return_value.data.upload_id = "upid2"
+    cfg = {"tenant_id": "ocid1.tenancy.oc1..mp2", "_tenant_name": "t"}
+    oss._NAMESPACE_CACHE.clear()
+    with patch.object(oss, "get_object_storage_client", return_value=client):
+        info = oss.init_multipart(cfg, "bucket1", "file.bin")
+        oss.abort_multipart(cfg, info["token"])
+    client.abort_multipart_upload.assert_called_once()
+    assert info["token"] not in oss._MULTIPART_SESSIONS
+    oss._NAMESPACE_CACHE.clear()
+
+
+def test_multipart_session_isolated_by_tenant():
+    import object_storage_service as oss
+
+    oss._MULTIPART_SESSIONS["tok"] = {"tenant_id": "tenant-a", "parts": []}
+    with pytest.raises(ValueError, match="会话不存在"):
+        oss._multipart_session("tok", {"tenant_id": "tenant-b"})
+    oss._MULTIPART_SESSIONS.pop("tok", None)
+
+
+def test_delete_objects_under_prefix_batches():
+    import object_storage_service as oss
+
+    client = MagicMock()
+    client.get_namespace.return_value.data = "myns"
+    page1 = MagicMock()
+    page1.data.objects = [MagicMock(name=n) for n in [f"p/{i}" for i in range(1000)]]
+    page1.data.next_start_with = None
+    client.list_objects.return_value = page1
+    cfg = {"tenant_id": "ocid1.tenancy.oc1..pd", "_tenant_name": "t"}
+    oss._NAMESPACE_CACHE.clear()
+    with patch.object(oss, "get_object_storage_client", return_value=client):
+        deleted = oss.delete_objects_under_prefix(cfg, "bucket1", "p/")
+    assert deleted == 1000
+    assert client.delete_objects.call_count == 10  # 1000 个 / 每批 100
+    oss._NAMESPACE_CACHE.clear()
+
+
+def test_reclaim_p95():
+    from monitoring_service import _p95
+
+    assert _p95([]) is None
+    assert _p95([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) == 10
+    assert _p95([0] * 9 + [50]) == 50
+
+
+def test_idle_reclaim_risk_flags_low_utilization():
+    import idle_service
+
+    instance = MagicMock()
+    instance.id = "ocid1.instance.oc1..idle"
+    instance.lifecycle_state = "RUNNING"
+    instance.shape = "VM.Standard.A1.Flex"
+    instance.display_name = "idle-vm"
+    instance.time_created = None
+    with patch.object(idle_service, "get_compute_client", return_value=MagicMock()), \
+         patch.object(idle_service, "get_identity_client", return_value=MagicMock()), \
+         patch.object(idle_service, "list_all", side_effect=[[MagicMock(name="AD-1")], [instance]]), \
+         patch("monitoring_service.reclaim_percentiles", return_value={instance.id: {"cpu_p95": 3.0, "mem_p95": 5.0, "net_p95": 100.0}}):
+        rows = idle_service._reclaim_risk_instances({"tenant_id": "t"})
+    assert len(rows) == 1 and rows[0]["kind"] == "reclaim_risk"
+    # CPU 分位高于 20% 时不标记
+    with patch.object(idle_service, "get_compute_client", return_value=MagicMock()), \
+         patch.object(idle_service, "get_identity_client", return_value=MagicMock()), \
+         patch.object(idle_service, "list_all", side_effect=[[MagicMock(name="AD-1")], [instance]]), \
+         patch("monitoring_service.reclaim_percentiles", return_value={instance.id: {"cpu_p95": 45.0, "mem_p95": 5.0, "net_p95": 100.0}}):
+        assert idle_service._reclaim_risk_instances({"tenant_id": "t"}) == []
+
+
+def test_batch_power_action_route(app_client):
+    """批量操作：逐台校验状态，不可操作记为 skipped。"""
+    client = MagicMock()
+    # 线程并发下 side_effect 列表的消耗顺序不确定，按 id 决定状态
+    client.get_instance.side_effect = lambda oid: MagicMock(
+        data=MagicMock(lifecycle_state="STOPPED" if oid == "id-a" else "RUNNING")
+    )
+    with patch("tenant_routes.get_compute_client", return_value=client):
+        resp = app_client.post(
+            "/tenant/testtenant/instances/batch-action",
+            data={"action": "start", "instance_id": ["id-a", "id-b"], "csrf_token": "testtoken"},
+            follow_redirects=True,
+        )
+    body = resp.get_data(as_text=True)
+    assert "批量启动" in body
+    client.instance_action.assert_called_once_with("id-a", "START")  # 只有 id-a 真正下发
+
+
+def test_batch_power_action_rejects_hard_actions(app_client):
+    resp = app_client.post(
+        "/tenant/testtenant/instances/batch-action",
+        data={"action": "reset", "instance_id": ["id-a"], "csrf_token": "testtoken"},
+        follow_redirects=True,
+    )
+    assert "批量操作仅支持" in resp.get_data(as_text=True)

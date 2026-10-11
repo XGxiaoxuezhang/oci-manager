@@ -7,7 +7,22 @@ from flask import Blueprint, flash, redirect, request, send_file, url_for
 
 from export_utils import send_csv
 from oci_helpers import build_dashboard_cards
-from object_storage_service import create_bucket, create_folder_marker, delete_bucket, delete_object, download_object, preview_object, storage_context, update_bucket_settings, upload_object
+from object_storage_service import (
+    abort_multipart,
+    commit_multipart,
+    create_bucket,
+    create_folder_marker,
+    delete_bucket,
+    delete_objects_under_prefix,
+    delete_object,
+    download_object,
+    init_multipart,
+    preview_object,
+    storage_context,
+    update_bucket_settings,
+    upload_multipart_part,
+    upload_object,
+)
 from rendering import render_page
 from storage import load_tenants
 from tenant_routes import require_tenant
@@ -162,6 +177,87 @@ def object_storage_bucket_settings(tenant_name: str):
     except Exception as exc:
         flash(f"更新 Bucket 设置失败: {friendly_error(exc)}", "error")
     return redirect(url_for("object_storage.object_storage_home", tenant_name=tenant_name, bucket=bucket_name or None))
+
+
+@object_storage_bp.route("/tenant/<tenant_name>/object-storage/multipart/init", methods=["POST"])
+def multipart_init(tenant_name: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return {"ok": False, "message": "租户不存在。"}
+    try:
+        info = init_multipart(
+            tenant_cfg,
+            request.form.get("bucket_name", "").strip(),
+            request.form.get("object_name", "").strip(),
+        )
+        return {"ok": True, **info}
+    except Exception as exc:
+        return {"ok": False, "message": friendly_error(exc)}
+
+
+@object_storage_bp.route("/tenant/<tenant_name>/object-storage/multipart/part", methods=["POST"])
+def multipart_part(tenant_name: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return {"ok": False, "message": "租户不存在。"}
+    part_file = request.files.get("part_file")
+    try:
+        part_number = int(request.form.get("part_number", "0"))
+    except ValueError:
+        return {"ok": False, "message": "分片序号不正确。"}
+    if not part_file or part_number < 1:
+        return {"ok": False, "message": "缺少分片内容或序号。"}
+    part_file.seek(0, 2)
+    content_length = part_file.tell()
+    part_file.seek(0)
+    try:
+        etag = upload_multipart_part(tenant_cfg, request.form.get("token", ""), part_number, part_file, content_length)
+        return {"ok": True, "etag": etag}
+    except Exception as exc:
+        return {"ok": False, "message": friendly_error(exc)}
+
+
+@object_storage_bp.route("/tenant/<tenant_name>/object-storage/multipart/complete", methods=["POST"])
+def multipart_complete(tenant_name: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return {"ok": False, "message": "租户不存在。"}
+    try:
+        result = commit_multipart(tenant_cfg, request.form.get("token", ""))
+        return {"ok": True, "object": result["object"], "parts": result["parts"]}
+    except Exception as exc:
+        return {"ok": False, "message": friendly_error(exc)}
+
+
+@object_storage_bp.route("/tenant/<tenant_name>/object-storage/multipart/abort", methods=["POST"])
+def multipart_abort(tenant_name: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return {"ok": False, "message": "租户不存在。"}
+    abort_multipart(tenant_cfg, request.form.get("token", ""))
+    return {"ok": True}
+
+
+@object_storage_bp.route("/tenant/<tenant_name>/object-storage/prefix-delete", methods=["POST"])
+def object_storage_prefix_delete(tenant_name: str):
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    bucket_name = request.form.get("bucket_name", "").strip()
+    prefix = request.form.get("prefix", "").strip()
+    confirm = request.form.get("confirm_name", "").strip()
+    if not bucket_name or not prefix:
+        flash("需要指定 Bucket 和要删除的前缀（不支持清空整个 Bucket）。", "error")
+        return redirect(url_for("object_storage.object_storage_home", tenant_name=tenant_name, bucket=bucket_name or None))
+    if confirm != prefix:
+        flash("确认输入与前缀不一致，未删除。", "error")
+        return redirect(url_for("object_storage.object_storage_home", tenant_name=tenant_name, bucket=bucket_name))
+    try:
+        deleted = delete_objects_under_prefix(tenant_cfg, bucket_name, prefix)
+        flash(f"已删除前缀 {prefix} 下的 {deleted} 个对象。", "success")
+    except Exception as exc:
+        flash(f"按前缀删除失败: {friendly_error(exc)}", "error")
+    return redirect(url_for("object_storage.object_storage_home", tenant_name=tenant_name, bucket=bucket_name))
 
 
 @object_storage_bp.route("/tenant/<tenant_name>/object-storage/object", methods=["POST"])

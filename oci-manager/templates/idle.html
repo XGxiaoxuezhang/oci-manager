@@ -2,7 +2,7 @@
 
 {% block title %}资源闲置检测 | OCI 管理器{% endblock %}
 {% block page_title %}资源闲置检测{% endblock %}
-{% block page_desc %}停机未删实例、未挂载引导卷、空对象存储桶，帮你回收资源、避免浪费额度。{% endblock %}
+{% block page_desc %}停机未删实例、未挂载引导卷、空对象存储桶、临近闲置回收线的 A1 实例，帮你回收资源、避免浪费额度。{% endblock %}
 
 {% block content %}
 <section class="section-head">
@@ -28,6 +28,7 @@
   <div class="metric"><div class="label">停机实例</div><div class="value">{{ idle.instances|length }}</div></div>
   <div class="metric"><div class="label">未挂载引导卷</div><div class="value">{{ idle.boot_volumes|length }}</div></div>
   <div class="metric"><div class="label">空存储桶</div><div class="value">{{ idle.buckets|length }}</div></div>
+  {% if idle.reclaim_risks %}<div class="metric"><div class="label">回收风险</div><div class="value">{{ idle.reclaim_risks|length }}</div></div>{% endif %}
 </section>
 
 <section class="table-card">
@@ -44,6 +45,10 @@
         {% endfor %}
         {% for item in idle.buckets %}
         <tr><td><span class="badge badge-mid">存储桶</span></td><td>{{ item.name }}</td><td>{{ item.detail }}</td><td>{{ item.created }}</td></tr>
+        {% endfor %}
+        {% for item in idle.reclaim_risks %}
+        <tr><td><span class="badge badge-warn">回收风险</span></td><td>{{ item.name }}</td><td>{{ item.detail }}</td><td>{{ item.created }}</td></tr>
+        {% else %}
         {% endfor %}
         {% if idle.total == 0 %}
         <tr><td colspan="4"><div class="empty">没有检测到闲置资源。</div></td></tr>

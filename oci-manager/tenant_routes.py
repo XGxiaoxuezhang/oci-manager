@@ -436,6 +436,51 @@ def instance_action(tenant_name: str, instance_id: str, action: str):
     return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
 
 
+@tenant_bp.route("/tenant/<tenant_name>/instances/batch-action", methods=["POST"])
+def instance_batch_action(tenant_name: str):
+    """批量电源操作：仅放行可逆/低险动作（启动、软停），逐台校验状态。"""
+    tenant_cfg = require_tenant(tenant_name)
+    if tenant_cfg is None:
+        return redirect(url_for("tenant.index"))
+    action = request.form.get("action", "").strip()
+    instance_ids = [value for value in request.form.getlist("instance_id") if value]
+    allowed = {"start", "softstop"}
+    if action not in allowed:
+        flash(f"批量操作仅支持：{'、'.join(sorted(allowed))}。", "error")
+        return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
+    if not instance_ids:
+        flash("请先勾选要操作的实例。", "error")
+        return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
+    action_label = INSTANCE_ACTION_LABELS.get(action, action)
+
+    def _apply(instance_id: str):
+        try:
+            client = get_compute_client(tenant_cfg)
+            state = client.get_instance(instance_id).data.lifecycle_state
+            if action not in instance_available_actions(state):
+                return instance_id, "skipped", f"状态 {state} 不允许{action_label}"
+            client.instance_action(instance_id, INSTANCE_ACTIONS[action])
+            return instance_id, "ok", ""
+        except Exception as exc:
+            return instance_id, "error", friendly_error(exc)
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(_apply, instance_ids))
+
+    ok = [r for r in results if r[1] == "ok"]
+    skipped = [r for r in results if r[1] == "skipped"]
+    failed = [r for r in results if r[1] == "error"]
+    if failed:
+        detail = "；".join(f"{name}: {msg}" for name, _, msg in failed[:5])
+        flash(f"批量{action_label}：成功 {len(ok)} 台，失败 {len(failed)} 台。{detail}", "error")
+    else:
+        extra = f"，跳过 {len(skipped)} 台" if skipped else ""
+        flash(f"批量{action_label}：成功 {len(ok)} 台{extra}。", "success")
+    return redirect(url_for("tenant.list_instances", tenant_name=tenant_name))
+
+
 @tenant_bp.route("/tenant/<tenant_name>/instance/<instance_id>/terminate", methods=["POST"])
 def instance_terminate(tenant_name: str, instance_id: str):
     tenant_cfg = require_tenant(tenant_name)

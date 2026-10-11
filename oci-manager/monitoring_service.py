@@ -94,6 +94,41 @@ def monitoring_series(tenant_cfg: dict[str, Any], hours: int = 24) -> dict[str, 
     return result
 
 
+def _p95(points: list[float]) -> float | None:
+    if not points:
+        return None
+    ordered = sorted(points)
+    return ordered[min(len(ordered) - 1, int(len(ordered) * 0.95))]
+
+
+def reclaim_percentiles(tenant_cfg: dict[str, Any]) -> dict[str, dict[str, float | None]]:
+    """7 天窗口的 CPU/内存 95 分位与网络速率，供闲置回收预警使用。
+
+    官方回收政策：连续 7 天 CPU、网络、内存 95 分位均低于 20% 的实例会被回收。
+    网络维度缺少带宽基准换算，这里只给出字节速率参考，判定以 CPU/内存为准。
+    """
+    try:
+        client = _monitoring_client(tenant_cfg)
+        compartment = compartment_of(tenant_cfg)
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            cpu_future = pool.submit(_summarize, client, compartment, _CPU_QUERY, 168)
+            mem_future = pool.submit(_summarize, client, compartment, _MEM_QUERY, 168)
+            net_future = pool.submit(_summarize, client, compartment, _NET_IN_QUERY, 168)
+        cpu, mem, net = cpu_future.result(), mem_future.result(), net_future.result()
+    except Exception:
+        return {}
+    result: dict[str, dict[str, float | None]] = {}
+    for instance_id, points in cpu.items():
+        result[instance_id] = {
+            "cpu_p95": _p95(points),
+            "mem_p95": _p95(mem.get(instance_id) or []),
+            "net_p95": _p95(net.get(instance_id) or []),
+        }
+    return result
+
+
 def attach_metrics_to_rows(rows: list[dict[str, Any]], tenant_cfg: dict[str, Any]) -> None:
     """把监控数据填进 list_instance_rows 的行里（原地修改）。
 

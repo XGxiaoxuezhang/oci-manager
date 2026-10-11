@@ -36,13 +36,21 @@
   <div class="table-toolbar" data-table-filter>
     <input type="search" data-filter-text placeholder="按名称 / IP / 规格过滤" aria-label="过滤实例">
     <select data-filter-state aria-label="按状态过滤"><option value="">全部状态</option></select>
+    <form id="batch-form" class="inline" method="post" action="/tenant/{{ tenant_name }}/instances/batch-action" data-batch-form>
+      <select name="action" aria-label="批量操作">
+        <option value="softstop">批量停止（软停）</option>
+        <option value="start">批量启动</option>
+      </select>
+      <button class="btn btn-secondary" type="submit" data-batch-submit disabled>批量执行（未选择）</button>
+    </form>
   </div>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>名称</th><th>规格</th><th>状态</th><th>CPU 24h</th><th>可用域</th><th>公网 IP</th><th>私网 IP</th><th>IPv6</th><th>创建时间</th><th>操作</th></tr></thead>
+      <thead><tr><th><input type="checkbox" data-batch-all aria-label="全选"></th><th>名称</th><th>规格</th><th>状态</th><th>CPU 24h</th><th>可用域</th><th>公网 IP</th><th>私网 IP</th><th>IPv6</th><th>创建时间</th><th>操作</th></tr></thead>
       <tbody>
         {% for instance in instances %}
         <tr>
+          <td><input type="checkbox" data-batch-check value="{{ instance.id }}" aria-label="选择 {{ instance.name }}"></td>
           <td>
             {{ instance.name }}
             {% if instance.id in scheduled_instance_ids %}<span class="badge badge-mid" title="已配置定时启停计划">定时</span>{% endif %}
